@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.16.0", features = ["jpeg", "gif", "webp"] }
 bevy_vector_shapes = "0.10.0"
+radsort = "0.1.1"
 rfd = { version = "0.15.3", default-features = false }
+
 
 # For Linux
 [target.x86_64-unknown-linux-gnu.dependencies]

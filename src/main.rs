@@ -7,9 +7,15 @@ use bevy::{
     winit::WinitSettings,
 };
 
+mod handle;
 mod observe_component;
 
-use bevy_vector_shapes::{Shape2dPlugin, prelude::ShapePainter, shapes::RectPainter};
+use bevy_vector_shapes::{
+    Shape2dPlugin,
+    prelude::ShapePainter,
+    shapes::{DiscPainter, RectPainter},
+};
+use handle::{ControlHandlePlugin, CurrentControlHandle, spawn_control_handle};
 use observe_component::Observe;
 
 fn main() {
@@ -37,8 +43,9 @@ fn main() {
         .insert_resource(DebugPickingMode::Normal)
         .add_plugins(DebugPickingPlugin)
         .add_plugins(Shape2dPlugin::default())
+        .add_plugins(ControlHandlePlugin)
         .add_systems(Startup, startup)
-        .add_systems(Update, (setup_sprite, draw_border))
+        .add_systems(Update, (setup_sprite, draw_border, dummy_paint))
         .run();
 }
 
@@ -163,7 +170,32 @@ fn startup(world: &mut World) {
     world
         .entity_mut(primary_window)
         .observe(zoom_with_mouse_wheel)
-        .observe(drag_with_middle_mouse_button);
+        .observe(drag_with_middle_mouse_button)
+        .observe(
+            |trigger: Trigger<Pointer<Click>>,
+             mut commands: Commands,
+             current: Option<Res<CurrentControlHandle>>| {
+                if trigger.event().button == PointerButton::Primary {
+                    if let Some(current_handle) = current {
+                        commands.entity(current_handle.0).despawn();
+                        commands.remove_resource::<CurrentControlHandle>();
+                    }
+                }
+            },
+        );
+}
+
+fn dummy_paint(mut painter: ShapePainter, mut done: Local<bool>) {
+    // Dummy draw to compile shaders in advance.
+    // Missing renders are especially visible with `WinitSettings::desktop_app()`.
+
+    if *done {
+        return;
+    }
+    *done = true;
+
+    painter.circle(0.0);
+    painter.rect(Vec2::splat(0.0));
 }
 
 fn zoom_with_mouse_wheel(
@@ -223,7 +255,7 @@ fn setup_sprite(
         };
         let size = image.texture_descriptor.size;
 
-        commands
+        let id = commands
             .entity(entity)
             .insert((
                 Sprite {
@@ -260,7 +292,16 @@ fn setup_sprite(
             })
             .observe(|trigger: Trigger<Pointer<Out>>, mut commands: Commands| {
                 commands.entity(trigger.target()).remove::<Hovered>();
-            });
+            })
+            .observe(
+                |mut trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
+                    trigger.propagate(false);
+                    info!(?trigger);
+                    commands.queue(spawn_control_handle(trigger.target()));
+                },
+            )
+            .id();
+        info!("Spawned sprite with id: {id:?}");
 
         *index += 1;
     }
