@@ -6,17 +6,16 @@ use bevy::{
     window::{PresentMode, PrimaryWindow},
     winit::WinitSettings,
 };
-
-mod handle;
-mod observe_component;
-
 use bevy_vector_shapes::{
     Shape2dPlugin,
     prelude::ShapePainter,
     shapes::{DiscPainter, RectPainter},
 };
-use handle::{ControlHandlePlugin, CurrentControlHandle, spawn_control_handle};
+use handle::{ControlHandlePlugin, CurrentControlHandle};
 use observe_component::Observe;
+
+mod handle;
+mod observe_component;
 
 fn main() {
     App::new()
@@ -171,18 +170,11 @@ fn startup(world: &mut World) {
         .entity_mut(primary_window)
         .observe(zoom_with_mouse_wheel)
         .observe(drag_with_middle_mouse_button)
-        .observe(
-            |trigger: Trigger<Pointer<Click>>,
-             mut commands: Commands,
-             current: Option<Res<CurrentControlHandle>>| {
-                if trigger.event().button == PointerButton::Primary {
-                    if let Some(current_handle) = current {
-                        commands.entity(current_handle.0).despawn();
-                        commands.remove_resource::<CurrentControlHandle>();
-                    }
-                }
-            },
-        );
+        .observe(|trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
+            if trigger.event().button == PointerButton::Primary {
+                commands.queue(handle::despawn_control_handle);
+            }
+        });
 }
 
 fn dummy_paint(mut painter: ShapePainter, mut done: Local<bool>) {
@@ -297,7 +289,7 @@ fn setup_sprite(
                 |mut trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
                     trigger.propagate(false);
                     info!(?trigger);
-                    commands.queue(spawn_control_handle(trigger.target()));
+                    commands.queue(handle::spawn_control_handle(trigger.target()));
                 },
             )
             .id();
