@@ -11,7 +11,7 @@ use bevy_vector_shapes::{
     prelude::ShapePainter,
     shapes::{DiscPainter, RectPainter},
 };
-use handle::{ControlHandlePlugin, CurrentControlHandle};
+use handle::ControlHandlePlugin;
 use observe_component::Observe;
 
 mod handle;

@@ -237,7 +237,7 @@ fn pick_handle(
                     ),
                 ));
 
-                if pickable.map_or(true, |p| p.should_block_lower) {
+                if pickable.is_none_or(|p| p.should_block_lower) {
                     break;
                 }
             }
