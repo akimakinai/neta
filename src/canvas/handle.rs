@@ -146,18 +146,22 @@ pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
 struct TrackMainCameraEntityTransform(Entity);
 
 fn track_main_camera_entity_transform(
+    mut commands: Commands,
+    transform_helper: TransformHelper,
     camera_translator: CameraTranslator,
-    transform: Query<&GlobalTransform, Without<TrackMainCameraEntityTransform>>,
-    mut tracker: Query<(&TrackMainCameraEntityTransform, &mut Transform)>,
+    tracker: Query<(Entity, &TrackMainCameraEntityTransform)>,
 ) -> Result {
-    for (tracker_entity, mut tracker_transform) in &mut tracker {
-        let Ok(target_transform) = transform.get(tracker_entity.0) else {
-            continue;
-        };
+    for (tracker_entity, target) in &tracker {
+        let target_entity = target.0;
+        let target_transform = transform_helper.compute_global_transform(target_entity)?;
 
-        let control_transform = camera_translator.to_control(target_transform)?;
+        let control_transform = camera_translator.to_control(&target_transform)?;
 
-        tracker_transform.set_if_neq(control_transform);
+        commands.queue(move |world: &mut World| {
+            world
+                .get_mut::<Transform>(tracker_entity)
+                .map(|mut t| t.set_if_neq(control_transform));
+        });
     }
 
     Ok(())
@@ -351,8 +355,8 @@ pub fn despawn_control_handle(world: &mut World) {
 fn update_corner_handle(
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    mut handle: Query<(Entity, &mut Transform, &ControlHandleCorner), Without<MainCamera>>,
-    sprite: Query<&Sprite>,
+    mut handle: Query<(Entity, &mut Transform, Ref<ControlHandleCorner>), Without<MainCamera>>,
+    sprite: Query<Ref<Sprite>>,
     images: Res<Assets<Image>>,
     main_camera: Query<&Transform, With<MainCamera>>,
 ) -> Result {
@@ -362,6 +366,10 @@ fn update_corner_handle(
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let sprite = sprite.get(sprite_id)?;
+
+        if !pivot.is_changed() && !sprite.is_changed() {
+            continue;
+        }
 
         if let Some(mut size) = sprite
             .custom_size
@@ -383,14 +391,18 @@ fn update_rotation_handle(
     camera_translator: CameraTranslator,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    mut handle: Query<(Entity, &mut Transform, &ControlHandleRotation), Without<MainCamera>>,
-    sprite: Query<(&GlobalTransform, &Sprite)>,
+    mut handle: Query<(Entity, &mut Transform, Ref<ControlHandleRotation>), Without<MainCamera>>,
+    sprite: Query<(&GlobalTransform, Ref<Sprite>)>,
     images: Res<Assets<Image>>,
 ) -> Result {
     for (id, mut transform, pivot) in handle.iter_mut() {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
+
+        if !pivot.is_changed() && !sprite.is_changed() {
+            continue;
+        }
 
         if let Some(mut size) = sprite
             .custom_size
