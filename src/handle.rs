@@ -1,4 +1,5 @@
 use bevy::{
+    color::palettes::css::*,
     ecs::system::RunSystemOnce,
     picking::{
         PickSet,
@@ -6,19 +7,26 @@ use bevy::{
     },
     prelude::*,
     sprite::Anchor,
+    window::SystemCursorIcon,
+    winit::cursor::CursorIcon,
 };
 use bevy_vector_shapes::{
     prelude::ShapePainter,
     shapes::{DiscPainter, RectPainter},
 };
 
+use crate::{observe_component::Observe, viewport_delta::PointerDelta};
+
 pub struct ControlHandlePlugin;
 
 impl Plugin for ControlHandlePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, pick_handle.in_set(PickSet::Backend))
-            .add_systems(Update, draw_control_handle)
-            .add_systems(Update, update_corner_handle);
+            .add_systems(Update, update_corner_handle)
+            .add_systems(
+                PostUpdate,
+                draw_control_handle.after(TransformSystem::TransformPropagate),
+            );
     }
 }
 
@@ -36,9 +44,9 @@ pub struct CurrentControlHandle(pub Entity);
 #[derive(Component)]
 struct ControlHandleCorner(Anchor);
 
-const CORNER_HANDLE_RADIUS: f32 = 5.0;
+const CORNER_HANDLE_RADIUS: f32 = 10.0;
 
-pub fn spawn_control_handle(parent: Entity) -> impl Command<Result> {
+pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
     move |world: &mut World| -> Result {
         // TODO: cache system
         world.run_system_once(
@@ -52,7 +60,7 @@ pub fn spawn_control_handle(parent: Entity) -> impl Command<Result> {
                     ControlHandle,
                     Transform::default(),
                     Visibility::default(),
-                    ChildOf(parent),
+                    ChildOf(sprite_id),
                 ));
                 handle.with_children(|parent| {
                     for anchor in [
@@ -65,15 +73,12 @@ pub fn spawn_control_handle(parent: Entity) -> impl Command<Result> {
                         // Anchor::CenterRight,
                         // Anchor::BottomCenter,
                     ] {
-                        parent
-                            .spawn((
-                                PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
-                                ControlHandleCorner(anchor),
-                                Transform::from_translation(Vec3::new(0., 0., 2.)),
-                            ))
-                            .observe(|mut trigger: Trigger<Pointer<Drag>>| {
-                                trigger.propagate(false);
-                            });
+                        parent.spawn((
+                            PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
+                            ControlHandleCorner(anchor),
+                            Transform::from_translation(Vec3::new(0., 0., 2.)),
+                            drag_handle_observers(anchor, sprite_id),
+                        ));
                     }
                 });
 
@@ -82,6 +87,81 @@ pub fn spawn_control_handle(parent: Entity) -> impl Command<Result> {
             },
         )?;
         Ok(())
+    }
+}
+
+fn drag_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
+    let cursor_icon = anchor_to_cursor_icon(anchor);
+
+    (
+        Observe::new(
+            move |mut trigger: Trigger<Pointer<Drag>>,
+                  viewport_delta: PointerDelta,
+                  mut sprites: Query<(&mut Transform, &mut Sprite)>| {
+                trigger.propagate(false);
+
+                let Some((delta, _)) =
+                    viewport_delta.get_world(&trigger.pointer_location, trigger.delta)
+                else {
+                    return;
+                };
+
+                let Ok((mut transform, mut sprite)) = sprites.get_mut(sprite_id) else {
+                    error_once!("ControlHandle has no parent sprite");
+                    return;
+                };
+
+                transform.translation += delta.extend(0.0) / 2.0;
+
+                let anchored_delta = match anchor {
+                    Anchor::TopLeft => Vec2::new(-delta.x, delta.y),
+                    Anchor::TopRight => Vec2::new(delta.x, delta.y),
+                    Anchor::BottomLeft => Vec2::new(-delta.x, -delta.y),
+                    Anchor::BottomRight => Vec2::new(delta.x, -delta.y),
+                    _ => {
+                        return;
+                    }
+                };
+
+                if let Some(custom_size) = sprite.custom_size.as_mut() {
+                    *custom_size += anchored_delta;
+                } else {
+                    error_once!("Sprite is missing custom size");
+                }
+            },
+        ),
+        Observe::new(
+            move |mut trigger: Trigger<Pointer<Over>>,
+                  mut commands: Commands,
+                  window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+                window.iter().for_each(|window| {
+                    commands
+                        .entity(window)
+                        .insert(CursorIcon::System(cursor_icon));
+                });
+            },
+        ),
+        Observe::new(
+            |mut trigger: Trigger<Pointer<Out>>,
+             mut commands: Commands,
+             window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+                window.iter().for_each(|window| {
+                    commands.entity(window).remove::<CursorIcon>();
+                });
+            },
+        ),
+    )
+}
+
+fn anchor_to_cursor_icon(anchor: Anchor) -> SystemCursorIcon {
+    match anchor {
+        Anchor::TopLeft => SystemCursorIcon::NwResize,
+        Anchor::TopRight => SystemCursorIcon::NeResize,
+        Anchor::BottomLeft => SystemCursorIcon::SwResize,
+        Anchor::BottomRight => SystemCursorIcon::SeResize,
+        _ => SystemCursorIcon::Default,
     }
 }
 
@@ -161,7 +241,7 @@ fn draw_control_handle(
             painter.circle(CORNER_HANDLE_RADIUS);
 
             painter.hollow = true;
-            painter.color = Color::BLACK;
+            painter.color = LIGHT_GRAY.into();
             painter.thickness = 1.0;
             painter.circle(CORNER_HANDLE_RADIUS + painter.thickness / 2.);
         }
@@ -237,6 +317,7 @@ fn pick_handle(
                     ),
                 ));
 
+                // Entities without the `Pickable` component block by default.
                 if pickable.is_none_or(|p| p.should_block_lower) {
                     break;
                 }

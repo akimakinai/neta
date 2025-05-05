@@ -10,8 +10,8 @@ use core::mem;
 #[component(on_replace = on_replace_observe::<E, B>)]
 /// A component that spawns an observer entity when added.
 /// Note that replacing or removing this component will despawn the old observer.
-pub enum Observe<E: Event, B: Bundle> {
-    Added(Observer, PhantomData<(E, B)>),
+pub enum Observe<E: Event, B: Bundle = ()> {
+    Added(Observer, PhantomData<fn(E, B)>),
     Observed(Entity),
 }
 
@@ -25,11 +25,11 @@ fn on_insert_observe<E: Event, B: Bundle>(mut world: DeferredWorld, context: Hoo
     let (mut entities, mut commands) = world.entities_and_commands();
 
     let Ok(mut observe) = entities.get_mut(context.entity) else {
-        return;
+        unreachable!();
     };
     let Some(mut observe) = observe.get_mut::<Observe<E, B>>() else {
         // on_insert hook is called after the component is inserted
-        unreachable!()
+        unreachable!();
     };
 
     let mut obs_entity = commands.spawn_empty();
@@ -47,7 +47,7 @@ fn on_insert_observe<E: Event, B: Bundle>(mut world: DeferredWorld, context: Hoo
 
 fn on_replace_observe<E: Event, B: Bundle>(mut world: DeferredWorld, context: HookContext) {
     let Some(observed) = world.get::<Observe<E, B>>(context.entity) else {
-        return;
+        unreachable!();
     };
 
     let Observe::Observed(obs_id) = *observed else {
@@ -55,7 +55,16 @@ fn on_replace_observe<E: Event, B: Bundle>(mut world: DeferredWorld, context: Ho
         return;
     };
 
-    world.commands().entity(obs_id).despawn();
+    world.commands().queue(move |world: &mut World| {
+        if world.get_entity(context.entity).is_err() {
+            // All observers will be despawned by `ObservedBy` on_remove hook
+            return;
+        }
+
+        if let Ok(entity) = world.get_entity_mut(obs_id) {
+            entity.despawn();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -74,6 +83,8 @@ mod tests {
 
         world.insert_resource(CheckTriggered(0));
 
+        assert_eq!(world.query::<&Observer>().iter(&world).count(), 0);
+
         let observer_system = |_trigger: Trigger<TestEvent>, mut check: ResMut<CheckTriggered>| {
             check.0 += 1;
         };
@@ -86,6 +97,7 @@ mod tests {
             *world.get_resource::<CheckTriggered>().unwrap(),
             CheckTriggered(0),
         );
+        assert_eq!(world.query::<&Observer>().iter(&world).count(), 1);
 
         world.entity_mut(entity).trigger(TestEvent);
 
@@ -107,6 +119,7 @@ mod tests {
             *world.get_resource::<CheckTriggered>().unwrap(),
             CheckTriggered(3),
         );
+        assert_eq!(world.query::<&Observer>().iter(&world).count(), 1,);
 
         world
             .entity_mut(entity)
@@ -118,5 +131,6 @@ mod tests {
             *world.get_resource::<CheckTriggered>().unwrap(),
             CheckTriggered(5),
         );
+        assert_eq!(world.query::<&Observer>().iter(&world).count(), 0);
     }
 }
