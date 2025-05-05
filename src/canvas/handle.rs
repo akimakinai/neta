@@ -187,25 +187,26 @@ fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
                     return;
                 };
 
+                // Resize with the opposite corner being fixed
+
                 transform.translation += delta.extend(0.0) / 2.0;
 
-                let rotated_delta = delta
-                    * match pivot {
-                        Pivot::TopLeft => Vec2::new(-1., 1.),
-                        Pivot::TopRight => Vec2::new(1., 1.),
-                        Pivot::BottomLeft => Vec2::new(-1., -1.),
-                        Pivot::BottomRight => Vec2::new(1., -1.),
-                        _ => {
-                            return;
-                        }
-                    };
-                let rotated_delta = match pivot {
-                    Pivot::TopRight | Pivot::BottomLeft => transform.rotation.inverse(),
-                    Pivot::TopLeft | Pivot::BottomRight => transform.rotation,
-                    _ => unreachable!(),
-                }
-                .mul_vec3(rotated_delta.extend(0.))
-                .truncate();
+                let sign = match pivot {
+                    Pivot::TopLeft => Vec2::new(-1., 1.),
+                    Pivot::TopRight => Vec2::new(1., 1.),
+                    Pivot::BottomLeft => Vec2::new(-1., -1.),
+                    Pivot::BottomRight => Vec2::new(1., -1.),
+                    _ => {
+                        return;
+                    }
+                };
+
+                let rotated_delta = transform
+                    .rotation
+                    .inverse()
+                    .mul_vec3(delta.extend(0.))
+                    .truncate()
+                    * sign;
 
                 if let Some(custom_size) = sprite.custom_size.as_mut() {
                     *custom_size += rotated_delta;
