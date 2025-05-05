@@ -7,7 +7,6 @@ use bevy::{
     },
     prelude::*,
     render::view::RenderLayers,
-    sprite::Anchor,
     window::{PrimaryWindow, SystemCursorIcon},
     winit::cursor::CursorIcon,
 };
@@ -56,64 +55,90 @@ pub struct ControlledSprite(Entity);
 #[derive(Resource, Debug)]
 pub struct CurrentControlHandle(pub Entity);
 
-#[derive(Component)]
-struct ControlHandleCorner(Anchor);
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub enum Pivot {
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+    CenterLeft,
+    CenterRight,
+    TopLeft,
+    TopCenter,
+    TopRight,
+}
+
+impl Pivot {
+    pub fn as_vec(&self) -> Vec2 {
+        match self {
+            Pivot::BottomLeft => Vec2::new(-0.5, -0.5),
+            Pivot::BottomCenter => Vec2::new(0.0, -0.5),
+            Pivot::BottomRight => Vec2::new(0.5, -0.5),
+            Pivot::CenterLeft => Vec2::new(-0.5, 0.0),
+            Pivot::CenterRight => Vec2::new(0.5, 0.0),
+            Pivot::TopLeft => Vec2::new(-0.5, 0.5),
+            Pivot::TopCenter => Vec2::new(0.0, 0.5),
+            Pivot::TopRight => Vec2::new(0.5, 0.5),
+        }
+    }
+}
 
 #[derive(Component)]
-struct ControlHandleRotation(Anchor);
+struct ControlHandleCorner(Pivot);
+
+#[derive(Component)]
+struct ControlHandleRotation(Pivot);
 
 const CORNER_HANDLE_RADIUS: f32 = 10.0;
 
 pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
     move |world: &mut World| -> Result {
-        // TODO: cache system
-        world.run_system_once(
-            move |mut commands: Commands, current: Option<Res<CurrentControlHandle>>| {
-                if let Some(current_handle) = current {
-                    commands.entity(current_handle.0).despawn();
-                }
+        if let Some(current_handle) = world.get_resource::<CurrentControlHandle>() {
+            world.entity_mut(current_handle.0).despawn();
+        }
 
-                let mut handle = commands.spawn((
-                    Name::new("ControlHandle"),
-                    ControlHandle(sprite_id),
-                    Transform::default(),
-                    Visibility::default(),
-                    TrackMainCameraEntityTransform(sprite_id),
+        let mut commands = world.commands();
+
+        let mut handle = commands.spawn((
+            Name::new("ControlHandle"),
+            ControlHandle(sprite_id),
+            Transform::default(),
+            Visibility::default(),
+            TrackMainCameraEntityTransform(sprite_id),
+            CONTROL_LAYER,
+        ));
+        handle.with_children(|parent| {
+            for pivot in [
+                Pivot::TopLeft,
+                Pivot::TopRight,
+                Pivot::BottomLeft,
+                Pivot::BottomRight,
+                // Pivot::TopCenter,
+                // Pivot::CenterLeft,
+                // Pivot::CenterRight,
+                // Pivot::BottomCenter,
+            ] {
+                parent.spawn((
                     CONTROL_LAYER,
+                    PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
+                    ControlHandleCorner(pivot),
+                    Transform::from_translation(Vec3::new(0., 0., 2.)),
+                    drag_handle_observers(pivot, sprite_id),
                 ));
-                handle.with_children(|parent| {
-                    for anchor in [
-                        Anchor::TopLeft,
-                        Anchor::TopRight,
-                        Anchor::BottomLeft,
-                        Anchor::BottomRight,
-                        // Anchor::TopCenter,
-                        // Anchor::CenterLeft,
-                        // Anchor::CenterRight,
-                        // Anchor::BottomCenter,
-                    ] {
-                        parent.spawn((
-                            CONTROL_LAYER,
-                            PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
-                            ControlHandleCorner(anchor),
-                            Transform::from_translation(Vec3::new(0., 0., 2.)),
-                            drag_handle_observers(anchor, sprite_id),
-                        ));
-                    }
+            }
 
-                    parent.spawn((
-                        CONTROL_LAYER,
-                        PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
-                        ControlHandleRotation(Anchor::TopCenter),
-                        Transform::from_translation(Vec3::new(0., 100., 2.)),
-                        rotation_handle_observers(Anchor::TopCenter, sprite_id),
-                    ));
-                });
+            parent.spawn((
+                CONTROL_LAYER,
+                PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
+                ControlHandleRotation(Pivot::TopCenter),
+                Transform::from_translation(Vec3::new(0., 100., 2.)),
+                rotation_handle_observers(Pivot::TopCenter, sprite_id),
+            ));
+        });
 
-                let handle = handle.id();
-                commands.insert_resource(CurrentControlHandle(handle));
-            },
-        )?;
+        let handle = handle.id();
+        commands.insert_resource(CurrentControlHandle(handle));
+
         Ok(())
     }
 }
@@ -139,8 +164,8 @@ fn track_main_camera_entity_transform(
     Ok(())
 }
 
-fn drag_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
-    let cursor_icon = anchor_to_cursor_icon(anchor);
+fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
+    let cursor_icon = anchor_to_cursor_icon(pivot);
 
     (
         Observe::new(
@@ -161,11 +186,11 @@ fn drag_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
 
                 transform.translation += delta.extend(0.0) / 2.0;
 
-                let anchored_delta = match anchor {
-                    Anchor::TopLeft => Vec2::new(-delta.x, delta.y),
-                    Anchor::TopRight => Vec2::new(delta.x, delta.y),
-                    Anchor::BottomLeft => Vec2::new(-delta.x, -delta.y),
-                    Anchor::BottomRight => Vec2::new(delta.x, -delta.y),
+                let anchored_delta = match pivot {
+                    Pivot::TopLeft => Vec2::new(-delta.x, delta.y),
+                    Pivot::TopRight => Vec2::new(delta.x, delta.y),
+                    Pivot::BottomLeft => Vec2::new(-delta.x, -delta.y),
+                    Pivot::BottomRight => Vec2::new(delta.x, -delta.y),
                     _ => {
                         return;
                     }
@@ -216,7 +241,7 @@ fn drag_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
     )
 }
 
-fn rotation_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
+fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
     (
         Observe::new(
             move |mut trigger: Trigger<Pointer<Drag>>,
@@ -257,7 +282,7 @@ fn rotation_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
 
                 let diff = cursor_world_pos - sprite_transform.translation.truncate();
                 sprite_transform.rotation =
-                    Quat::from_rotation_arc_2d(anchor.as_vec().normalize(), diff.normalize());
+                    Quat::from_rotation_arc_2d(pivot.as_vec().normalize(), diff.normalize());
             },
         ),
         Observe::new(
@@ -298,12 +323,12 @@ fn rotation_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
     )
 }
 
-fn anchor_to_cursor_icon(anchor: Anchor) -> SystemCursorIcon {
-    match anchor {
-        Anchor::TopLeft => SystemCursorIcon::NwResize,
-        Anchor::TopRight => SystemCursorIcon::NeResize,
-        Anchor::BottomLeft => SystemCursorIcon::SwResize,
-        Anchor::BottomRight => SystemCursorIcon::SeResize,
+fn anchor_to_cursor_icon(pivot: Pivot) -> SystemCursorIcon {
+    match pivot {
+        Pivot::TopLeft => SystemCursorIcon::NwResize,
+        Pivot::TopRight => SystemCursorIcon::NeResize,
+        Pivot::BottomLeft => SystemCursorIcon::SwResize,
+        Pivot::BottomRight => SystemCursorIcon::SeResize,
         _ => SystemCursorIcon::Default,
     }
 }
@@ -326,7 +351,7 @@ fn update_corner_handle(
 ) -> Result {
     let main_camera_transform = main_camera.single()?;
 
-    for (id, mut transform, anchor) in handle.iter_mut() {
+    for (id, mut transform, pivot) in handle.iter_mut() {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let sprite = sprite.get(sprite_id)?;
@@ -337,7 +362,7 @@ fn update_corner_handle(
         {
             size /= main_camera_transform.scale.xy();
 
-            let v = anchor.0.as_vec();
+            let v = pivot.0.as_vec();
             transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z);
         }
     }
@@ -355,7 +380,7 @@ fn update_rotation_handle(
     sprite: Query<(&GlobalTransform, &Sprite)>,
     images: Res<Assets<Image>>,
 ) -> Result {
-    for (id, mut transform, anchor) in handle.iter_mut() {
+    for (id, mut transform, pivot) in handle.iter_mut() {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
@@ -366,7 +391,7 @@ fn update_rotation_handle(
         {
             size *= camera_translator.to_control(sprite_transform)?.scale.xy();
 
-            let v = anchor.0.as_vec();
+            let v = pivot.0.as_vec();
             let handle_extention = ROTATION_HANDLE_LENGTH * v * 2.0;
             transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
                 + handle_extention.extend(0.0);
