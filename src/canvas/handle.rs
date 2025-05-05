@@ -8,7 +8,7 @@ use bevy::{
     prelude::*,
     render::view::RenderLayers,
     sprite::Anchor,
-    window::SystemCursorIcon,
+    window::{PrimaryWindow, SystemCursorIcon},
     winit::cursor::CursorIcon,
 };
 use bevy_vector_shapes::{
@@ -27,7 +27,11 @@ impl Plugin for ControlHandlePlugin {
         app.add_systems(PreUpdate, pick_handle.in_set(PickSet::Backend))
             .add_systems(
                 Update,
-                (track_main_camera_entity_transform, update_corner_handle).chain(),
+                (
+                    track_main_camera_entity_transform,
+                    (update_corner_handle, update_rotation_handle),
+                )
+                    .chain(),
             )
             .add_systems(
                 PostUpdate,
@@ -54,6 +58,9 @@ pub struct CurrentControlHandle(pub Entity);
 
 #[derive(Component)]
 struct ControlHandleCorner(Anchor);
+
+#[derive(Component)]
+struct ControlHandleRotation(Anchor);
 
 const CORNER_HANDLE_RADIUS: f32 = 10.0;
 
@@ -93,6 +100,14 @@ pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
                             drag_handle_observers(anchor, sprite_id),
                         ));
                     }
+
+                    parent.spawn((
+                        CONTROL_LAYER,
+                        PickingAreaCircle(Circle::new(CORNER_HANDLE_RADIUS)),
+                        ControlHandleRotation(Anchor::TopCenter),
+                        Transform::from_translation(Vec3::new(0., 100., 2.)),
+                        rotation_handle_observers(Anchor::TopCenter, sprite_id),
+                    ));
                 });
 
                 let handle = handle.id();
@@ -201,6 +216,88 @@ fn drag_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
     )
 }
 
+fn rotation_handle_observers(anchor: Anchor, sprite_id: Entity) -> impl Bundle {
+    (
+        Observe::new(
+            move |mut trigger: Trigger<Pointer<Drag>>,
+                  main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+                  primary_window: Query<Entity, With<PrimaryWindow>>,
+                  mut transform: Query<&mut Transform>,
+                  mut commands: Commands,
+                  window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+
+                window.iter().for_each(|window| {
+                    commands
+                        .entity(window)
+                        .insert(CursorIcon::System(SystemCursorIcon::Grabbing));
+                });
+
+                let Ok(mut sprite_transform) = transform.get_mut(sprite_id) else {
+                    return;
+                };
+
+                let Ok((main_camera, main_camera_transform)) = main_camera.single() else {
+                    return;
+                };
+                let primary_window = primary_window.single().ok();
+
+                if main_camera.target.normalize(primary_window).as_ref()
+                    != Some(&trigger.pointer_location.target)
+                {
+                    error_once!(?trigger, "not targetting MainCamera");
+                    return;
+                }
+
+                let Ok(cursor_world_pos) = main_camera
+                    .viewport_to_world_2d(main_camera_transform, trigger.pointer_location.position)
+                else {
+                    return;
+                };
+
+                let diff = cursor_world_pos - sprite_transform.translation.truncate();
+                sprite_transform.rotation =
+                    Quat::from_rotation_arc_2d(anchor.as_vec().normalize(), diff.normalize());
+            },
+        ),
+        Observe::new(
+            move |mut trigger: Trigger<Pointer<Over>>,
+                  mut commands: Commands,
+                  window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+                window.iter().for_each(|window| {
+                    commands
+                        .entity(window)
+                        .insert(CursorIcon::System(SystemCursorIcon::Grab));
+                });
+            },
+        ),
+        Observe::new(
+            |mut trigger: Trigger<Pointer<Out>>,
+             mut commands: Commands,
+             window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+                window.iter().for_each(|window| {
+                    commands.entity(window).remove::<CursorIcon>();
+                });
+            },
+        ),
+        Observe::new(
+            |mut trigger: Trigger<Pointer<DragEnd>>,
+             mut commands: Commands,
+             window: Query<Entity, With<Window>>| {
+                trigger.propagate(false);
+                window.iter().for_each(|window| {
+                    commands.entity(window).remove::<CursorIcon>();
+                });
+            },
+        ),
+        Observe::new(|mut trigger: Trigger<Pointer<Click>>| {
+            trigger.propagate(false);
+        }),
+    )
+}
+
 fn anchor_to_cursor_icon(anchor: Anchor) -> SystemCursorIcon {
     match anchor {
         Anchor::TopLeft => SystemCursorIcon::NwResize,
@@ -248,12 +345,42 @@ fn update_corner_handle(
     Ok(())
 }
 
+const ROTATION_HANDLE_LENGTH: f32 = 50.0;
+
+fn update_rotation_handle(
+    camera_translator: CameraTranslator,
+    control_handle: Query<&ControlHandle>,
+    child_of: Query<&ChildOf>,
+    mut handle: Query<(Entity, &mut Transform, &ControlHandleRotation), Without<MainCamera>>,
+    sprite: Query<(&GlobalTransform, &Sprite)>,
+    images: Res<Assets<Image>>,
+) -> Result {
+    for (id, mut transform, anchor) in handle.iter_mut() {
+        let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
+
+        let (sprite_transform, sprite) = sprite.get(sprite_id)?;
+
+        if let Some(mut size) = sprite
+            .custom_size
+            .or_else(|| images.get(&sprite.image).map(|img| img.size_f32()))
+        {
+            size *= camera_translator.to_control(sprite_transform)?.scale.xy();
+
+            let v = anchor.0.as_vec();
+            let handle_extention = ROTATION_HANDLE_LENGTH * v * 2.0;
+            transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
+                + handle_extention.extend(0.0);
+        }
+    }
+
+    Ok(())
+}
 const HANDLE_WIDTH: f32 = 2.0;
 
 fn draw_control_handle(
     camera_translator: CameraTranslator,
     handle_frames: Query<(&ControlHandle, &Children)>,
-    handles: Query<&GlobalTransform, With<ControlHandleCorner>>,
+    handles: Query<&GlobalTransform, Or<(With<ControlHandleCorner>, With<ControlHandleRotation>)>>,
     frame: Query<(&GlobalTransform, &Sprite)>,
     mut painter: ShapePainter,
 ) -> Result {

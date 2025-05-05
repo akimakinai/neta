@@ -42,7 +42,8 @@ impl<'w, 's> CameraTranslator<'w, 's> {
             return Err("`viewport_to_world_2d` failed".into());
         };
 
-        let affine = main_transform.affine() * control_camera.1.affine() * main_camera.1.affine().inverse();
+        let affine =
+            main_transform.affine() * control_camera.1.affine() * main_camera.1.affine().inverse();
         let (scale, rotation, _) = affine.to_scale_rotation_translation();
 
         Ok(Transform {
