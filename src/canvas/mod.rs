@@ -1,11 +1,21 @@
-use crate::viewport_delta::PointerDelta;
-use bevy::{ecs::schedule::common_conditions, prelude::*, window::PrimaryWindow};
+use crate::{
+    sprite_picking::{SpritePickingMode, SpritePickingSettings},
+    viewport_delta::PointerDelta,
+};
+use bevy::{
+    ecs::schedule::common_conditions,
+    prelude::*,
+    render::view::RenderLayers,
+    window::PrimaryWindow,
+};
 use bevy_vector_shapes::{
     Shape2dPlugin,
     prelude::ShapePainter,
     shapes::{DiscPainter, RectPainter},
 };
+use camera_util::CameraTranslator;
 
+mod camera_util;
 mod handle;
 
 pub struct CanvasPlugin;
@@ -41,8 +51,25 @@ pub struct Canvas;
 #[derive(Component)]
 struct MainCamera;
 
+/// Camera for control handles.
+#[derive(Component)]
+struct ControlCamera;
+
+pub const CONTROL_LAYER: RenderLayers = RenderLayers::layer(1);
+
 fn startup(world: &mut World) {
-    world.spawn((Camera2d, MainCamera));
+    world.spawn((Name::new("MainCamera"), Camera2d, MainCamera));
+
+    world.spawn((
+        Name::new("ControlCamera"),
+        Camera2d,
+        Camera {
+            order: 1,
+            ..default()
+        },
+        CONTROL_LAYER,
+        ControlCamera,
+    ));
 
     world.spawn((
         Name::new("Canvas"),
@@ -61,6 +88,7 @@ fn startup(world: &mut World) {
         .observe(drag_with_middle_mouse_button)
         .observe(|trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
             if trigger.event().button == PointerButton::Primary {
+                info!(?trigger, "Despawning control handle");
                 commands.queue(handle::despawn_control_handle);
             }
         });
@@ -92,8 +120,8 @@ fn zoom_with_mouse_wheel(
 
 fn drag_with_middle_mouse_button(
     trigger: Trigger<Pointer<Drag>>,
-    mut camera: Query<&mut Transform, With<Camera>>,
-    pointer_delta: PointerDelta,
+    mut camera: Query<(NameOrEntity, &mut Transform), With<Camera>>,
+    pointer_delta: PointerDelta<With<MainCamera>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
     if mouse_buttons.any_pressed([MouseButton::Left, MouseButton::Right]) {
@@ -105,9 +133,10 @@ fn drag_with_middle_mouse_button(
         if let Some((world_delta, camera_id)) =
             pointer_delta.get_world(&trigger.pointer_location, trigger.delta)
         {
-            let Ok(mut transform) = camera.get_mut(camera_id) else {
+            let Ok((name, mut transform)) = camera.get_mut(camera_id) else {
                 return;
             };
+            info!("Dragging camera {name}");
 
             transform.translation -= world_delta.extend(0.0);
         }
@@ -146,7 +175,7 @@ fn setup_sprite(
             .observe(
                 |trigger: Trigger<Pointer<Drag>>,
                  mut transform: Query<&mut Transform>,
-                 viewport_delta: PointerDelta| {
+                 viewport_delta: PointerDelta<With<MainCamera>>| {
                     if trigger.event().button != PointerButton::Primary {
                         return;
                     }
@@ -182,14 +211,21 @@ fn setup_sprite(
 }
 
 fn draw_border(
+    camera_translator: CameraTranslator,
     hovered: Query<(&GlobalTransform, &Sprite), With<Hovered>>,
     mut painter: ShapePainter,
-) {
+) -> Result {
+    painter.render_layers = Some(CONTROL_LAYER);
+    painter.hollow = true;
+    painter.corner_radii = Vec4::splat(5.0);
+
     for (transform, sprite) in hovered {
-        let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0));
-        painter.transform = transform.compute_transform();
-        painter.hollow = true;
-        painter.corner_radii = Vec4::splat(5.0);
+        let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0))
+            * camera_translator.to_control_scale()?.xy();
+        painter.transform.translation =
+            camera_translator.to_control_world_pos(transform.translation())?;
         painter.rect(size);
     }
+
+    Ok(())
 }

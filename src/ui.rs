@@ -41,6 +41,7 @@ fn setup(world: &mut World) {
     ));
 }
 
+/// Create a button with the given label.
 fn button(world: &World, label: &str) -> impl Bundle {
     let assets = world.resource::<AssetServer>();
     let button_normal = assets.load("images/tile_0015.png");
@@ -96,6 +97,9 @@ fn button(world: &World, label: &str) -> impl Bundle {
     )
 }
 
+/// A set of observers for a button.
+/// It will change the button image when pressed and released.
+/// Also, it will call the `on_click` function when the button is clicked.
 fn button_observers<M>(
     button_normal: Handle<Image>,
     button_pressed: Handle<Image>,

@@ -9,6 +9,7 @@ use bevy::{
 
 mod canvas;
 mod observe_component;
+mod sprite_picking;
 mod ui;
 mod viewport_delta;
 
@@ -30,6 +31,8 @@ fn main() {
                 })
                 .disable::<PipelinedRenderingPlugin>(),
         )
+        // replace with fixed version (https://github.com/bevyengine/bevy/pull/18069)
+        .add_plugins(sprite_picking::SpritePickingPlugin)
         .add_plugins(DebugPickingPlugin)
         .insert_resource(DebugPickingMode::Normal)
         .add_plugins((canvas::CanvasPlugin, ui::UiPlugin))

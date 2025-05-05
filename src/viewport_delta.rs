@@ -1,14 +1,17 @@
 use bevy::{
-    ecs::system::SystemParam, picking::pointer::Location, prelude::*, window::PrimaryWindow,
+    ecs::{query::QueryFilter, system::SystemParam},
+    picking::pointer::Location,
+    prelude::*,
+    window::PrimaryWindow,
 };
 
 #[derive(SystemParam)]
-pub struct PointerDelta<'w, 's> {
-    camera: Query<'w, 's, (Entity, &'static Camera, &'static GlobalTransform)>,
+pub struct PointerDelta<'w, 's, F: QueryFilter + 'static = ()> {
+    camera: Query<'w, 's, (Entity, &'static Camera, &'static GlobalTransform), F>,
     primary_window: Query<'w, 's, Entity, With<PrimaryWindow>>,
 }
 
-impl<'w, 's> PointerDelta<'w, 's> {
+impl<'w, 's, F: QueryFilter> PointerDelta<'w, 's, F> {
     /// Returns the world delta converted from the viewport delta and the camera entity of the pointer.
     pub fn get_world(&self, pointer_location: &Location, delta: Vec2) -> Option<(Vec2, Entity)> {
         let (camera_id, camera, camera_transform) = self
