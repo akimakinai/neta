@@ -1,6 +1,5 @@
 use bevy::{
     color::palettes::css::*,
-    ecs::system::RunSystemOnce,
     picking::{
         PickSet,
         backend::{HitData, PointerHits, ray::RayMap},
@@ -12,7 +11,7 @@ use bevy::{
 };
 use bevy_vector_shapes::{
     prelude::ShapePainter,
-    shapes::{DiscPainter, RectPainter},
+    shapes::{DiscPainter, LinePainter, RectPainter},
 };
 
 use crate::{observe_component::Observe, viewport_delta::PointerDelta};
@@ -370,7 +369,7 @@ fn update_corner_handle(
     Ok(())
 }
 
-const ROTATION_HANDLE_LENGTH: f32 = 50.0;
+const ROTATION_HANDLE_EXTENSION: f32 = 50.0;
 
 fn update_rotation_handle(
     camera_translator: CameraTranslator,
@@ -392,7 +391,7 @@ fn update_rotation_handle(
             size *= camera_translator.to_control(sprite_transform)?.scale.xy();
 
             let v = pivot.0.as_vec();
-            let handle_extention = ROTATION_HANDLE_LENGTH * v * 2.0;
+            let handle_extention = ROTATION_HANDLE_EXTENSION * v.normalize();
             transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
                 + handle_extention.extend(0.0);
         }
@@ -405,7 +404,10 @@ const HANDLE_WIDTH: f32 = 2.0;
 fn draw_control_handle(
     camera_translator: CameraTranslator,
     handle_frames: Query<(&ControlHandle, &Children)>,
-    handles: Query<&GlobalTransform, Or<(With<ControlHandleCorner>, With<ControlHandleRotation>)>>,
+    handles: Query<
+        (&GlobalTransform, Option<&ControlHandleRotation>),
+        Or<(With<ControlHandleCorner>, With<ControlHandleRotation>)>,
+    >,
     frame: Query<(&GlobalTransform, &Sprite)>,
     mut painter: ShapePainter,
 ) -> Result {
@@ -431,11 +433,8 @@ fn draw_control_handle(
         painter.thickness = HANDLE_WIDTH;
         painter.rect(frame_size);
 
-        painter.hollow = false;
-        painter.thickness = 2.0;
-
-        for corner_transform in handles.iter_many(children) {
-            painter.transform.translation = corner_transform.translation().with_z(3.0);
+        for (transform, rotation_handle) in handles.iter_many(children) {
+            painter.transform.translation = transform.translation().with_z(3.0);
             painter.hollow = false;
             painter.thickness = 0.0;
             painter.color = Color::WHITE;
@@ -445,6 +444,17 @@ fn draw_control_handle(
             painter.color = LIGHT_GRAY.into();
             painter.thickness = 1.0;
             painter.circle(CORNER_HANDLE_RADIUS + painter.thickness / 2.);
+
+            if let Some(rotation_handle) = rotation_handle {
+                painter.transform = control_transform;
+
+                let v = rotation_handle.0.as_vec();
+                let start = v * frame_size;
+                painter.line(
+                    start.extend(0.0),
+                    (start + v.normalize() * ROTATION_HANDLE_EXTENSION).extend(0.0),
+                );
+            }
         }
     }
 

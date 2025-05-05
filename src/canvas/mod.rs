@@ -8,7 +8,7 @@ use bevy::{
 use bevy_vector_shapes::{
     Shape2dPlugin,
     prelude::ShapePainter,
-    shapes::{DiscPainter, RectPainter},
+    shapes::{DiscPainter, LinePainter, RectPainter},
 };
 use camera_util::CameraTranslator;
 
@@ -97,6 +97,7 @@ fn dummy_paint(mut painter: ShapePainter) {
 
     painter.circle(0.0);
     painter.rect(Vec2::splat(0.0));
+    painter.line(Vec3::ZERO, Vec3::ZERO);
 }
 
 fn zoom_with_mouse_wheel(
