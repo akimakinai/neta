@@ -19,34 +19,40 @@ pub struct CameraTranslator<'w, 's> {
 }
 
 impl<'w, 's> CameraTranslator<'w, 's> {
-    pub fn to_control_world_pos(&self, main_world_pos: Vec3) -> Result<Vec3> {
+    /// Maps a [`GlobalTransform`] from the [`MainCamera`]'s view into the [`ControlCamera`]'s view,
+    /// based on viewport coordinate assuming two cameras target the same window.
+    /// This is useful when you want to visually align objects between two camera spaces.
+    ///
+    /// The returned `Transform` will always have a `z` value of 0.0.
+    pub fn to_control(&self, main_transform: &GlobalTransform) -> Result<Transform> {
         let main_camera = self.main_camera.single()?;
         let control_camera = self.control_camera.single()?;
 
         let Ok(main_viewport) = main_camera
             .0
-            .world_to_viewport(main_camera.1, main_world_pos)
+            .world_to_viewport(main_camera.1, main_transform.translation())
         else {
             return Err("`world_to_viewport` failed".into());
         };
 
-        let Ok(control_world) = control_camera
+        let Ok(translation) = control_camera
             .0
             .viewport_to_world_2d(control_camera.1, main_viewport)
         else {
             return Err("`viewport_to_world_2d` failed".into());
         };
 
-        let control_world = control_world.extend(0.0);
-        Ok(control_world)
+        let affine = main_transform.affine() * control_camera.1.affine() * main_camera.1.affine().inverse();
+        let (scale, rotation, _) = affine.to_scale_rotation_translation();
+
+        Ok(Transform {
+            translation: translation.extend(0.0),
+            scale,
+            rotation,
+            // rotation: main_transform.rotation()
+            //     * control_camera.1.rotation()
+            //     * main_camera.1.rotation().inverse(),
+            // scale: main_transform.scale() * control_camera.1.scale() / main_camera.1.scale(),
+        })
     }
-
-    pub fn to_control_scale(&self) -> Result<Vec3> {
-        let main_camera = self.main_camera.single()?;
-        let control_camera = self.control_camera.single()?;
-
-        Ok(control_camera.1.scale() / main_camera.1.scale())
-    }
-
-    // TODO: Transform -> Transform
 }

@@ -108,7 +108,7 @@ struct TrackMainCameraEntityTransform(Entity);
 
 fn track_main_camera_entity_transform(
     camera_translator: CameraTranslator,
-    transform: Query<&Transform, Without<TrackMainCameraEntityTransform>>,
+    transform: Query<&GlobalTransform, Without<TrackMainCameraEntityTransform>>,
     mut tracker: Query<(&TrackMainCameraEntityTransform, &mut Transform)>,
 ) -> Result {
     for (tracker_entity, mut tracker_transform) in &mut tracker {
@@ -116,11 +116,9 @@ fn track_main_camera_entity_transform(
             continue;
         };
 
-        let control_world = camera_translator.to_control_world_pos(target_transform.translation)?;
+        let control_transform = camera_translator.to_control(target_transform)?;
 
-        if tracker_transform.translation != control_world {
-            tracker_transform.translation = control_world;
-        }
+        tracker_transform.set_if_neq(control_transform);
     }
 
     Ok(())
@@ -254,29 +252,32 @@ const HANDLE_WIDTH: f32 = 2.0;
 
 fn draw_control_handle(
     camera_translator: CameraTranslator,
-    handle_frames: Query<(&ControlHandle, &GlobalTransform, &Children)>,
+    handle_frames: Query<(&ControlHandle, &Children)>,
     handles: Query<&GlobalTransform, With<ControlHandleCorner>>,
-    frame: Query<&Sprite>,
+    frame: Query<(&GlobalTransform, &Sprite)>,
     mut painter: ShapePainter,
 ) -> Result {
     painter.render_layers = Some(CONTROL_LAYER);
 
-    for (handle, handle_transform, children) in handle_frames.iter() {
-        let sprite = frame.get(handle.0)?;
+    for (handle, children) in handle_frames.iter() {
+        let (sprite_transform, sprite) = frame.get(handle.0)?;
 
         let Some(sprite_size) = sprite.custom_size else {
             return Ok(());
         };
-        let frame_size = sprite_size * camera_translator.to_control_scale()?.xy();
 
-        painter.transform = handle_transform.compute_transform();
+        let control_transform = camera_translator.to_control(sprite_transform)?;
+
+        let frame_size = sprite_size * control_transform.scale.xy();
+
+        painter.transform = control_transform;
         painter.transform.translation.z = 2.0;
 
         // border
         painter.hollow = true;
         painter.color = Color::WHITE;
         painter.thickness = HANDLE_WIDTH;
-        painter.rect(frame_size + Vec2::new(HANDLE_WIDTH, HANDLE_WIDTH));
+        painter.rect(frame_size);
 
         painter.hollow = false;
         painter.thickness = 2.0;

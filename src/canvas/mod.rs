@@ -3,10 +3,7 @@ use crate::{
     viewport_delta::PointerDelta,
 };
 use bevy::{
-    ecs::schedule::common_conditions,
-    prelude::*,
-    render::view::RenderLayers,
-    window::PrimaryWindow,
+    ecs::schedule::common_conditions, prelude::*, render::view::RenderLayers, window::PrimaryWindow,
 };
 use bevy_vector_shapes::{
     Shape2dPlugin,
@@ -55,7 +52,8 @@ struct MainCamera;
 #[derive(Component)]
 struct ControlCamera;
 
-pub const CONTROL_LAYER: RenderLayers = RenderLayers::layer(1);
+/// Render layer for [`ControlCamera`].
+const CONTROL_LAYER: RenderLayers = RenderLayers::layer(1);
 
 fn startup(world: &mut World) {
     world.spawn((Name::new("MainCamera"), Camera2d, MainCamera));
@@ -88,7 +86,6 @@ fn startup(world: &mut World) {
         .observe(drag_with_middle_mouse_button)
         .observe(|trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
             if trigger.event().button == PointerButton::Primary {
-                info!(?trigger, "Despawning control handle");
                 commands.queue(handle::despawn_control_handle);
             }
         });
@@ -220,10 +217,10 @@ fn draw_border(
     painter.corner_radii = Vec4::splat(5.0);
 
     for (transform, sprite) in hovered {
-        let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0))
-            * camera_translator.to_control_scale()?.xy();
-        painter.transform.translation =
-            camera_translator.to_control_world_pos(transform.translation())?;
+        let control_transform = camera_translator.to_control(transform)?;
+
+        let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0)) * control_transform.scale.xy();
+        painter.transform = control_transform;
         painter.rect(size);
     }
 
