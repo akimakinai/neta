@@ -6,11 +6,10 @@ use bevy::{
     window::PresentMode,
     winit::WinitSettings,
 };
-use canvas::CanvasPlugin;
 
 mod canvas;
-mod handle;
 mod observe_component;
+mod ui;
 mod viewport_delta;
 
 fn main() {
@@ -33,6 +32,6 @@ fn main() {
         )
         .add_plugins(DebugPickingPlugin)
         .insert_resource(DebugPickingMode::Normal)
-        .add_plugins(CanvasPlugin)
+        .add_plugins((canvas::CanvasPlugin, ui::UiPlugin))
         .run();
 }

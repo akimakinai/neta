@@ -1,5 +1,3 @@
-use crate::handle::ControlHandlePlugin;
-use crate::observe_component::Observe;
 use crate::viewport_delta::PointerDelta;
 use bevy::{ecs::schedule::common_conditions, prelude::*, window::PrimaryWindow};
 use bevy_vector_shapes::{
@@ -8,7 +6,7 @@ use bevy_vector_shapes::{
     shapes::{DiscPainter, RectPainter},
 };
 
-use crate::handle;
+mod handle;
 
 pub struct CanvasPlugin;
 
@@ -19,7 +17,7 @@ impl Plugin for CanvasPlugin {
             picking_mode: SpritePickingMode::BoundingBox,
         })
         .add_plugins(Shape2dPlugin::default())
-        .add_plugins(ControlHandlePlugin)
+        .add_plugins(handle::ControlHandlePlugin)
         .add_systems(Startup, startup)
         .add_systems(
             Update,
@@ -32,119 +30,19 @@ impl Plugin for CanvasPlugin {
             PostUpdate,
             draw_border
                 .after(TransformSystem::TransformPropagate)
-                .run_if(
-                    |current: Option<Res<crate::handle::CurrentControlHandle>>| current.is_none(),
-                ),
+                .run_if(|current: Option<Res<handle::CurrentControlHandle>>| current.is_none()),
         );
     }
 }
 
 #[derive(Component)]
-struct Canvas;
+pub struct Canvas;
 
 #[derive(Component)]
 struct MainCamera;
 
-fn button(world: &World, label: &str) -> impl Bundle {
-    let assets = world.resource::<AssetServer>();
-    let button_normal = assets.load("images/tile_0015.png");
-    let button_pressed = assets.load("images/tile_0016.png");
-
-    (
-        Button,
-        Node {
-            width: Val::Px(150.0),
-            height: Val::Px(35.0),
-            // border: UiRect::all(Val::Px(5.0)),
-            // horizontally center child text
-            justify_content: JustifyContent::Center,
-            // vertically center child text
-            align_items: AlignItems::Center,
-            ..default()
-        },
-        ImageNode {
-            image: button_normal.clone(),
-            image_mode: NodeImageMode::Sliced(TextureSlicer {
-                border: BorderRect::all(8.),
-                sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-                ..default()
-            }),
-            ..default()
-        },
-        children![(
-            Text::new(label),
-            TextFont {
-                font_size: 20.0,
-                ..default()
-            },
-            TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            TextShadow::default(),
-        )],
-        Observe::new(
-            move |trigger: Trigger<Pointer<Pressed>>, mut image_node: Query<&mut ImageNode>| {
-                image_node.get_mut(trigger.target()).unwrap().image = button_pressed.clone();
-            },
-        ),
-        Observe::new({
-            let button_normal = button_normal.clone();
-            move |trigger: Trigger<Pointer<Released>>, mut image_node: Query<&mut ImageNode>| {
-                image_node.get_mut(trigger.target()).unwrap().image = button_normal.clone();
-            }
-        }),
-        Observe::new(
-            move |trigger: Trigger<Pointer<DragEnd>>, mut image_node: Query<&mut ImageNode>| {
-                image_node.get_mut(trigger.target()).unwrap().image = button_normal.clone();
-            },
-        ),
-        Observe::new(
-            |trigger: Trigger<Pointer<Click>>,
-             mut commands: Commands,
-             canvas_id: Single<Entity, With<Canvas>>,
-             assets: Res<AssetServer>| {
-                info!(?trigger);
-                let canvas_id = canvas_id.into_inner();
-                let files = rfd::FileDialog::new().pick_files();
-                info!(?files);
-                if let Some(files) = files {
-                    for file in files {
-                        let img: Handle<Image> = assets.load(file);
-                        commands.entity(canvas_id).with_child(ImageFrame(img));
-                    }
-                }
-            },
-        ),
-    )
-}
-
 fn startup(world: &mut World) {
     world.spawn((Camera2d, MainCamera));
-
-    let menu_background = world.resource::<AssetServer>().load("images/tile_0028.png");
-
-    world.spawn((
-        Name::new("Menu"),
-        Node::default(),
-        Pickable::IGNORE,
-        children![(
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(5.0),
-                left: Val::Px(5.0),
-                padding: UiRect::axes(Val::Px(5.0), Val::Px(10.0)),
-                ..default()
-            },
-            ImageNode {
-                image: menu_background,
-                image_mode: NodeImageMode::Sliced(TextureSlicer {
-                    border: BorderRect::all(8.),
-                    sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-                    ..default()
-                }),
-                ..default()
-            },
-            children![button(world, "Add")],
-        ),],
-    ));
 
     world.spawn((
         Name::new("Canvas"),
@@ -217,7 +115,7 @@ fn drag_with_middle_mouse_button(
 }
 
 #[derive(Component)]
-struct ImageFrame(Handle<Image>);
+pub struct ImageFrame(pub Handle<Image>);
 
 #[derive(Component)]
 struct Hovered;
@@ -273,7 +171,6 @@ fn setup_sprite(
             .observe(
                 |mut trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
                     trigger.propagate(false);
-                    info!(?trigger);
                     commands.queue(handle::spawn_control_handle(trigger.target()));
                 },
             )
