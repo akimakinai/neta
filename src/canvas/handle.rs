@@ -1,6 +1,8 @@
 use bevy::{
     color::palettes::css::*,
+    picking::pointer::Location,
     prelude::*,
+    render::camera::NormalizedRenderTarget,
     window::{PrimaryWindow, SystemCursorIcon},
     winit::cursor::CursorIcon,
 };
@@ -9,9 +11,13 @@ use bevy_vector_shapes::{
     shapes::{DiscPainter, LinePainter, RectPainter},
 };
 
-use crate::{observe_component::Observe, viewport_delta::PointerDelta};
+use crate::{bail, observe_component::Observe, viewport_delta::PointerDelta};
 
-use super::{CONTROL_LAYER, MainCamera, camera_util::CameraTranslator, picking::PickingAreaCircle};
+use super::{
+    CONTROL_LAYER, MainCamera,
+    camera_util::{CameraTranslator, RenderTargetHelper},
+    picking::PickingAreaCircle,
+};
 
 pub struct ControlHandlePlugin;
 
@@ -28,7 +34,8 @@ impl Plugin for ControlHandlePlugin {
         .add_systems(
             PostUpdate,
             draw_control_handle.after(TransformSystem::TransformPropagate),
-        );
+        )
+        .add_observer(on_update_rotation_cursor);
     }
 }
 
@@ -45,7 +52,7 @@ pub struct CurrentControlHandle(pub Entity);
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
-pub enum Pivot {
+enum Pivot {
     BottomLeft,
     BottomCenter,
     BottomRight,
@@ -57,7 +64,7 @@ pub enum Pivot {
 }
 
 impl Pivot {
-    pub fn as_vec(&self) -> Vec2 {
+    fn as_vec(&self) -> Vec2 {
         match self {
             Pivot::BottomLeft => Vec2::new(-0.5, -0.5),
             Pivot::BottomCenter => Vec2::new(0.0, -0.5),
@@ -79,6 +86,7 @@ struct ControlHandleRotation(Pivot);
 
 const CORNER_HANDLE_RADIUS: f32 = 10.0;
 
+/// Attach [`ControlHandle`] to Sprite `sprite_id`
 pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
     move |world: &mut World| -> Result {
         if let Some(current_handle) = world.get_resource::<CurrentControlHandle>() {
@@ -131,6 +139,15 @@ pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
     }
 }
 
+/// Removes current control handle that [`CurrentControlHandle`] points to.
+pub fn despawn_control_handle(world: &mut World) {
+    let current = world.get_resource::<CurrentControlHandle>();
+    if let Some(current_handle) = current {
+        world.entity_mut(current_handle.0).despawn();
+        world.remove_resource::<CurrentControlHandle>();
+    }
+}
+
 #[derive(Component)]
 struct TrackMainCameraEntityTransform(Entity);
 
@@ -156,15 +173,66 @@ fn track_main_camera_entity_transform(
     Ok(())
 }
 
-fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
-    let cursor_icon = anchor_to_cursor_icon(pivot);
+#[derive(Event)]
+struct UpdateRotationCursor {
+    location: Location,
+}
 
+fn on_update_rotation_cursor(
+    trigger: Trigger<UpdateRotationCursor>,
+    mut commands: Commands,
+    camera: Query<(&Camera, &GlobalTransform)>,
+    transform: Query<&Transform>,
+    helper: RenderTargetHelper<MainCamera>,
+) -> Result {
+    let NormalizedRenderTarget::Window(target_window) = trigger.location.target else {
+        bail!("Not a window target: {:?}", trigger.location.target);
+    };
+
+    let (main_camera, main_camera_transform) =
+        camera.get(helper.find_camera(&trigger.location.target)?)?;
+
+    let frame_transform = transform.get(trigger.target())?;
+
+    let frame_view_pos =
+        main_camera.world_to_viewport(main_camera_transform, frame_transform.translation)?;
+    let delta = trigger.location.position - frame_view_pos;
+
+    let sector = ((delta.normalize().angle_to(Vec2::X) + std::f32::consts::PI)
+        / std::f32::consts::FRAC_PI_8)
+        .round() as i32;
+
+    let cursor = match sector % 16 {
+        0 | 15 => SystemCursorIcon::EResize,
+        1 | 2 => SystemCursorIcon::NeResize,
+        3 | 4 => SystemCursorIcon::NResize,
+        5 | 6 => SystemCursorIcon::NwResize,
+        7 | 8 => SystemCursorIcon::WResize,
+        9 | 10 => SystemCursorIcon::SwResize,
+        11 | 12 => SystemCursorIcon::SResize,
+        13 | 14 => SystemCursorIcon::SeResize,
+        _ => SystemCursorIcon::Default,
+    };
+
+    commands
+        .entity(target_window.entity())
+        .insert(CursorIcon::System(cursor));
+
+    Ok(())
+}
+
+fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
     (
         Observe::new(
             move |mut trigger: Trigger<Pointer<Drag>>,
+                  mut commands: Commands,
                   viewport_delta: PointerDelta<With<MainCamera>>,
                   mut sprites: Query<(&mut Transform, &mut Sprite)>| {
                 trigger.propagate(false);
+
+                commands.entity(sprite_id).trigger(UpdateRotationCursor {
+                    location: trigger.pointer_location.clone(),
+                });
 
                 let Some((delta, _)) =
                     viewport_delta.get_world(&trigger.pointer_location, trigger.delta)
@@ -205,14 +273,11 @@ fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
             },
         ),
         Observe::new(
-            move |mut trigger: Trigger<Pointer<Over>>,
-                  mut commands: Commands,
-                  window: Query<Entity, With<Window>>| {
+            move |mut trigger: Trigger<Pointer<Over>>, mut commands: Commands| {
                 trigger.propagate(false);
-                window.iter().for_each(|window| {
-                    commands
-                        .entity(window)
-                        .insert(CursorIcon::System(cursor_icon));
+
+                commands.entity(sprite_id).trigger(UpdateRotationCursor {
+                    location: trigger.pointer_location.clone(),
                 });
             },
         ),
@@ -322,24 +387,6 @@ fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
             trigger.propagate(false);
         }),
     )
-}
-
-fn anchor_to_cursor_icon(pivot: Pivot) -> SystemCursorIcon {
-    match pivot {
-        Pivot::TopLeft => SystemCursorIcon::NwResize,
-        Pivot::TopRight => SystemCursorIcon::NeResize,
-        Pivot::BottomLeft => SystemCursorIcon::SwResize,
-        Pivot::BottomRight => SystemCursorIcon::SeResize,
-        _ => SystemCursorIcon::Default,
-    }
-}
-
-pub fn despawn_control_handle(world: &mut World) {
-    let current = world.get_resource::<CurrentControlHandle>();
-    if let Some(current_handle) = current {
-        world.entity_mut(current_handle.0).despawn();
-        world.remove_resource::<CurrentControlHandle>();
-    }
 }
 
 fn update_corner_handle(

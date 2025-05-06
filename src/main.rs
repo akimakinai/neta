@@ -8,6 +8,7 @@ use bevy::{
 };
 
 mod canvas;
+mod error;
 mod observe_component;
 mod sprite_picking;
 mod ui;

@@ -1,4 +1,9 @@
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{
+    ecs::system::SystemParam, prelude::*, render::camera::NormalizedRenderTarget,
+    window::PrimaryWindow,
+};
+
+use crate::bevyhow;
 
 use super::{ControlCamera, MainCamera};
 
@@ -55,5 +60,27 @@ impl<'w, 's> CameraTranslator<'w, 's> {
             //     * main_camera.1.rotation().inverse(),
             // scale: main_transform.scale() * control_camera.1.scale() / main_camera.1.scale(),
         })
+    }
+}
+
+// Since the information on which camera the picking backend used is not included in pointer events,
+// we need to specify marker component to find the intended camera.
+#[derive(SystemParam)]
+pub struct RenderTargetHelper<'w, 's, C: Component> {
+    camera: Query<'w, 's, (Entity, &'static Camera), With<C>>,
+    primary_window: Query<'w, 's, Entity, With<PrimaryWindow>>,
+}
+
+impl<'w, 's, C: Component> RenderTargetHelper<'w, 's, C> {
+    pub fn find_camera(&self, target: &NormalizedRenderTarget) -> Result<Entity> {
+        let primary_window = self.primary_window.single().ok();
+
+        let (id, _) = self
+            .camera
+            .iter()
+            .find(|(_id, camera)| camera.target.normalize(primary_window).as_ref() == Some(target))
+            .ok_or_else(|| bevyhow!("Camera not found for target {target:?}"))?;
+
+        Ok(id)
     }
 }
