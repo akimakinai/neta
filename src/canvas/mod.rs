@@ -14,6 +14,7 @@ use camera_util::CameraTranslator;
 
 mod camera_util;
 mod handle;
+mod picking;
 
 pub struct CanvasPlugin;
 
@@ -24,6 +25,7 @@ impl Plugin for CanvasPlugin {
             picking_mode: SpritePickingMode::BoundingBox,
         })
         .add_plugins(Shape2dPlugin::default())
+        .add_plugins(picking::AreaPickingPlugin)
         .add_plugins(handle::ControlHandlePlugin)
         .add_systems(Startup, startup)
         .add_systems(
