@@ -1,11 +1,15 @@
 use bevy::{picking::backend::prelude::*, prelude::*, render::view::RenderLayers};
 
 /// Picking plugin for invisible hover area.
-pub struct AreaPickingPlugin;
+#[derive(Default, Clone, Resource)]
+pub struct AreaPickingPlugin {
+    pub require_markers: bool,
+}
 
 impl Plugin for AreaPickingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, pick_shape.in_set(PickSet::Backend));
+        app.insert_resource(self.clone())
+            .add_systems(PreUpdate, pick_shape.in_set(PickSet::Backend));
     }
 }
 
@@ -31,12 +35,16 @@ fn pick_shape(
         Option<&RenderLayers>,
     )>,
     mut output: EventWriter<PointerHits>,
+    settings: Res<AreaPickingPlugin>,
 ) {
     // based on bevy_sprite\src\picking_backend.rs
 
     let mut sorted_handles = handle_shapes
         .iter()
-        .filter(|(_, transform, ..)| !transform.affine().is_nan())
+        .filter(|(_, transform, .., pickable, _)| {
+            !transform.affine().is_nan()
+                && (!settings.require_markers || pickable.is_some_and(|p| p.is_hoverable))
+        })
         .collect::<Vec<_>>();
     radsort::sort_by_key(&mut sorted_handles, |(_, transform, ..)| {
         -transform.translation().z

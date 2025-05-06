@@ -25,7 +25,9 @@ impl Plugin for CanvasPlugin {
             picking_mode: SpritePickingMode::BoundingBox,
         })
         .add_plugins(Shape2dPlugin::default())
-        .add_plugins(picking::AreaPickingPlugin)
+        .add_plugins(picking::AreaPickingPlugin {
+            require_markers: false,
+        })
         .add_plugins(handle::ControlHandlePlugin)
         .add_systems(Startup, startup)
         .add_systems(
