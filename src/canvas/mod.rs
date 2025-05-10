@@ -3,7 +3,8 @@ use crate::{
     viewport_delta::PointerDelta,
 };
 use bevy::{
-    ecs::schedule::common_conditions, prelude::*, render::view::RenderLayers, window::PrimaryWindow,
+    asset::LoadState, ecs::schedule::common_conditions, prelude::*, render::view::RenderLayers,
+    window::PrimaryWindow,
 };
 use bevy_vector_shapes::{
     Shape2dPlugin,
@@ -163,11 +164,19 @@ pub struct Hovered;
 fn setup_sprite(
     mut commands: Commands,
     images: Res<Assets<Image>>,
+    asset_server: Res<AssetServer>,
     image_frames: Query<(Entity, &ImageFrame), Without<Sprite>>,
     mut index: Local<u32>,
 ) {
     for (entity, image_frame) in image_frames {
         let Some(image) = images.get(&image_frame.0) else {
+            if matches!(
+                asset_server.get_load_state(&image_frame.0),
+                Some(LoadState::Failed(..)),
+            ) {
+                commands.entity(entity).despawn();
+            }
+
             continue;
         };
         let size = image.texture_descriptor.size;
