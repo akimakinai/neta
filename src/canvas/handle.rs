@@ -395,8 +395,8 @@ fn update_corner_handle(
     mut commands: Commands,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    handle: Query<(Entity, &Transform, Ref<ControlHandleCorner>), Without<MainCamera>>,
-    sprite: Query<(&GlobalTransform, Ref<Sprite>)>,
+    handle: Query<(Entity, &Transform, &ControlHandleCorner), Without<MainCamera>>,
+    sprite: Query<(&GlobalTransform, &Sprite)>,
     images: Res<Assets<Image>>,
     camera_translator: CameraTranslator,
 ) -> Result {
@@ -404,10 +404,6 @@ fn update_corner_handle(
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
-
-        // if !pivot.is_changed() && !sprite.is_changed() {
-        //     continue;
-        // }
 
         if let Some(mut size) = sprite
             .custom_size
@@ -417,13 +413,13 @@ fn update_corner_handle(
 
             let v = pivot.0.as_vec();
             let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z);
-            commands.queue(move |world: &mut World| {
-                if let Some(mut t) = world.get_mut::<Transform>(id) {
-                    if t.translation != new_translation {
+            if transform.translation != new_translation {
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut t) = world.get_mut::<Transform>(id) {
                         t.translation = new_translation;
                     }
-                }
-            });
+                });
+            }
         }
     }
 
@@ -437,18 +433,14 @@ fn update_rotation_handle(
     camera_translator: CameraTranslator,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    handle: Query<(Entity, &Transform, Ref<ControlHandleRotation>), Without<MainCamera>>,
-    sprite: Query<(&GlobalTransform, Ref<Sprite>)>,
+    handle: Query<(Entity, &Transform, &ControlHandleRotation), Without<MainCamera>>,
+    sprite: Query<(&GlobalTransform, &Sprite)>,
     images: Res<Assets<Image>>,
 ) -> Result {
     for (id, transform, pivot) in &handle {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
-
-        // if !pivot.is_changed() && !sprite.is_changed() {
-        //     continue;
-        // }
 
         if let Some(mut size) = sprite
             .custom_size
@@ -460,13 +452,13 @@ fn update_rotation_handle(
             let handle_extention = ROTATION_HANDLE_EXTENSION * v.normalize();
             let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
                 + handle_extention.extend(0.0);
-            commands.queue(move |world: &mut World| {
-                if let Some(mut t) = world.get_mut::<Transform>(id) {
-                    if t.translation != new_translation {
+            if transform.translation != new_translation {
+                commands.queue(move |world: &mut World| {
+                    if let Some(mut t) = world.get_mut::<Transform>(id) {
                         t.translation = new_translation;
                     }
-                }
-            });
+                });
+            }
         }
     }
 
@@ -497,10 +489,11 @@ fn draw_control_handle(
 
         let frame_size = sprite_size * control_transform.scale.xy();
 
-        painter.transform = control_transform;
-        painter.transform.translation.z = 2.0;
-        // Ignore scaling
-        painter.transform.scale = Vec3::ONE;
+        let frame_transform = control_transform
+            .with_translation(control_transform.translation.with_z(2.0))
+            // Ignore scaling
+            .with_scale(Vec3::ONE);
+        painter.transform = frame_transform;
 
         // border
         painter.hollow = true;
@@ -521,9 +514,7 @@ fn draw_control_handle(
             painter.circle(CORNER_HANDLE_RADIUS + painter.thickness / 2.);
 
             if let Some(rotation_handle) = rotation_handle {
-                painter.transform = control_transform;
-                // Ignore scaling
-                painter.transform.scale = Vec3::ONE;
+                painter.transform = frame_transform;
                 painter.color = Color::WHITE;
 
                 let v = rotation_handle.0.as_vec();
