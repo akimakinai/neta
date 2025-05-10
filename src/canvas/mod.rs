@@ -131,7 +131,7 @@ fn zoom_with_mouse_wheel(
 
 fn drag_with_middle_mouse_button(
     trigger: Trigger<Pointer<Drag>>,
-    mut camera: Query<(NameOrEntity, &mut Transform), With<Camera>>,
+    mut camera: Query<&mut Transform, With<Camera>>,
     pointer_delta: PointerDelta<With<MainCamera>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
@@ -144,10 +144,9 @@ fn drag_with_middle_mouse_button(
         if let Some((world_delta, camera_id)) =
             pointer_delta.get_world(&trigger.pointer_location, trigger.delta)
         {
-            let Ok((name, mut transform)) = camera.get_mut(camera_id) else {
+            let Ok(mut transform) = camera.get_mut(camera_id) else {
                 return;
             };
-            info!("Dragging camera {name}");
 
             transform.translation -= world_delta.extend(0.0);
         }
@@ -157,8 +156,9 @@ fn drag_with_middle_mouse_button(
 #[derive(Component)]
 pub struct ImageFrame(pub Handle<Image>);
 
+/// Currently hovered frame.
 #[derive(Component)]
-struct Hovered;
+pub struct Hovered;
 
 fn setup_sprite(
     mut commands: Commands,
@@ -234,7 +234,7 @@ fn draw_border(
         let control_transform = camera_translator.to_control(transform)?;
 
         let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0)) * control_transform.scale.xy();
-        painter.transform = control_transform;
+        painter.transform = control_transform.with_scale(Vec3::ONE);
         painter.rect(size);
     }
 
