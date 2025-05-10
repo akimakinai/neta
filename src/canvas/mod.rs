@@ -88,11 +88,20 @@ fn startup(world: &mut World) {
         .entity_mut(primary_window)
         .observe(zoom_with_mouse_wheel)
         .observe(drag_with_middle_mouse_button)
-        .observe(|trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
-            if trigger.event().button == PointerButton::Primary {
-                commands.queue(handle::despawn_control_handle);
-            }
-        });
+        .observe(
+            |trigger: Trigger<Pointer<Click>>,
+             mut commands: Commands,
+             #[cfg(feature = "dev")] egui_wants_input_resource: Res<
+                bevy_inspector_egui::bevy_egui::input::EguiWantsInput,
+            >| {
+                if egui_wants_input_resource.wants_any_input() {
+                    return;
+                }
+                if trigger.event().button == PointerButton::Primary {
+                    commands.queue(handle::despawn_control_handle);
+                }
+            },
+        );
 }
 
 fn dummy_paint(mut painter: ShapePainter) {
@@ -114,9 +123,9 @@ fn zoom_with_mouse_wheel(
 
     let event = trigger.event();
     if event.y > 0.0 {
-        transform.scale *= 1.1;
+        transform.scale *= Vec3::new(1.1, 1.1, 1.0);
     } else {
-        transform.scale /= 1.1;
+        transform.scale /= Vec3::new(1.1, 1.1, 1.0);
     }
 }
 

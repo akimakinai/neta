@@ -52,7 +52,7 @@ bevy = { version = "0.16.0", default-features = false, features = [
 bevy_vector_shapes = "0.10.0"
 radsort = "0.1.1"
 rfd = { version = "0.15.3", default-features = false }
-
+bevy-inspector-egui = { version = "0.31", optional = true }
 
 # For Linux
 [target.x86_64-unknown-linux-gnu.dependencies]
@@ -68,6 +68,7 @@ dev = [
     "bevy/dynamic_linking",
     "bevy/bevy_dev_tools",
     "bevy/track_location",
+    "bevy-inspector-egui",
 ]
 dev_native = [
     "dev",

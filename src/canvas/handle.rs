@@ -161,7 +161,9 @@ fn track_main_camera_entity_transform(
         let target_entity = target.0;
         let target_transform = transform_helper.compute_global_transform(target_entity)?;
 
-        let control_transform = camera_translator.to_control(&target_transform)?;
+        let mut control_transform = camera_translator.to_control(&target_transform)?;
+        // Ignore scaling
+        control_transform.scale = Vec3::ONE;
 
         commands.queue(move |world: &mut World| {
             world
@@ -390,32 +392,38 @@ fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
 }
 
 fn update_corner_handle(
+    mut commands: Commands,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    mut handle: Query<(Entity, &mut Transform, Ref<ControlHandleCorner>), Without<MainCamera>>,
-    sprite: Query<Ref<Sprite>>,
+    handle: Query<(Entity, &Transform, Ref<ControlHandleCorner>), Without<MainCamera>>,
+    sprite: Query<(&GlobalTransform, Ref<Sprite>)>,
     images: Res<Assets<Image>>,
-    main_camera: Query<&Transform, With<MainCamera>>,
+    camera_translator: CameraTranslator,
 ) -> Result {
-    let main_camera_transform = main_camera.single()?;
-
-    for (id, mut transform, pivot) in handle.iter_mut() {
+    for (id, transform, pivot) in &handle {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
-        let sprite = sprite.get(sprite_id)?;
+        let (sprite_transform, sprite) = sprite.get(sprite_id)?;
 
-        if !pivot.is_changed() && !sprite.is_changed() {
-            continue;
-        }
+        // if !pivot.is_changed() && !sprite.is_changed() {
+        //     continue;
+        // }
 
         if let Some(mut size) = sprite
             .custom_size
             .or_else(|| images.get(&sprite.image).map(|img| img.size_f32()))
         {
-            size /= main_camera_transform.scale.xy();
+            size *= camera_translator.to_control(sprite_transform)?.scale.xy();
 
             let v = pivot.0.as_vec();
-            transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z);
+            let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z);
+            commands.queue(move |world: &mut World| {
+                if let Some(mut t) = world.get_mut::<Transform>(id) {
+                    if t.translation != new_translation {
+                        t.translation = new_translation;
+                    }
+                }
+            });
         }
     }
 
@@ -425,21 +433,22 @@ fn update_corner_handle(
 const ROTATION_HANDLE_EXTENSION: f32 = 50.0;
 
 fn update_rotation_handle(
+    mut commands: Commands,
     camera_translator: CameraTranslator,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    mut handle: Query<(Entity, &mut Transform, Ref<ControlHandleRotation>), Without<MainCamera>>,
+    handle: Query<(Entity, &Transform, Ref<ControlHandleRotation>), Without<MainCamera>>,
     sprite: Query<(&GlobalTransform, Ref<Sprite>)>,
     images: Res<Assets<Image>>,
 ) -> Result {
-    for (id, mut transform, pivot) in handle.iter_mut() {
+    for (id, transform, pivot) in &handle {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
 
-        if !pivot.is_changed() && !sprite.is_changed() {
-            continue;
-        }
+        // if !pivot.is_changed() && !sprite.is_changed() {
+        //     continue;
+        // }
 
         if let Some(mut size) = sprite
             .custom_size
@@ -449,8 +458,15 @@ fn update_rotation_handle(
 
             let v = pivot.0.as_vec();
             let handle_extention = ROTATION_HANDLE_EXTENSION * v.normalize();
-            transform.translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
+            let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
                 + handle_extention.extend(0.0);
+            commands.queue(move |world: &mut World| {
+                if let Some(mut t) = world.get_mut::<Transform>(id) {
+                    if t.translation != new_translation {
+                        t.translation = new_translation;
+                    }
+                }
+            });
         }
     }
 
@@ -483,6 +499,8 @@ fn draw_control_handle(
 
         painter.transform = control_transform;
         painter.transform.translation.z = 2.0;
+        // Ignore scaling
+        painter.transform.scale = Vec3::ONE;
 
         // border
         painter.hollow = true;
@@ -504,6 +522,8 @@ fn draw_control_handle(
 
             if let Some(rotation_handle) = rotation_handle {
                 painter.transform = control_transform;
+                // Ignore scaling
+                painter.transform.scale = Vec3::ONE;
                 painter.color = Color::WHITE;
 
                 let v = rotation_handle.0.as_vec();

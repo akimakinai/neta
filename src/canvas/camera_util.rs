@@ -7,20 +7,15 @@ use crate::bevyhow;
 
 use super::{ControlCamera, MainCamera};
 
+/// Helper for translating between two cameras' viewports.
+/// Two cameras are expected to target the same window and have the same viewport size.
 #[derive(SystemParam)]
 pub struct CameraTranslator<'w, 's> {
-    main_camera: Query<
-        'w,
-        's,
-        (&'static Camera, &'static GlobalTransform),
-        (With<MainCamera>, Without<ControlCamera>),
-    >,
-    control_camera: Query<
-        'w,
-        's,
-        (&'static Camera, &'static GlobalTransform),
-        (With<ControlCamera>, Without<MainCamera>),
-    >,
+    transform_helper: TransformHelper<'w, 's>,
+    main_camera:
+        Query<'w, 's, (&'static Camera, Entity), (With<MainCamera>, Without<ControlCamera>)>,
+    control_camera:
+        Query<'w, 's, (&'static Camera, Entity), (With<ControlCamera>, Without<MainCamera>)>,
 }
 
 impl<'w, 's> CameraTranslator<'w, 's> {
@@ -33,32 +28,31 @@ impl<'w, 's> CameraTranslator<'w, 's> {
         let main_camera = self.main_camera.single()?;
         let control_camera = self.control_camera.single()?;
 
-        let Ok(main_viewport) = main_camera
-            .0
-            .world_to_viewport(main_camera.1, main_transform.translation())
-        else {
-            return Err("`world_to_viewport` failed".into());
-        };
+        let main_camera_transform = self
+            .transform_helper
+            .compute_global_transform(main_camera.1)?;
 
-        let Ok(translation) = control_camera
+        let main_viewport = main_camera
             .0
-            .viewport_to_world_2d(control_camera.1, main_viewport)
-        else {
-            return Err("`viewport_to_world_2d` failed".into());
-        };
+            .world_to_viewport(&main_camera_transform, main_transform.translation())?;
 
-        let affine =
-            main_transform.affine() * control_camera.1.affine() * main_camera.1.affine().inverse();
+        let control_camera_transform = self
+            .transform_helper
+            .compute_global_transform(control_camera.1)?;
+
+        let translation = control_camera
+            .0
+            .viewport_to_world_2d(&control_camera_transform, main_viewport)?;
+
+        let affine = main_transform.affine()
+            * control_camera_transform.affine()
+            * main_camera_transform.affine().inverse();
         let (scale, rotation, _) = affine.to_scale_rotation_translation();
 
         Ok(Transform {
             translation: translation.extend(0.0),
             scale,
             rotation,
-            // rotation: main_transform.rotation()
-            //     * control_camera.1.rotation()
-            //     * main_camera.1.rotation().inverse(),
-            // scale: main_transform.scale() * control_camera.1.scale() / main_camera.1.scale(),
         })
     }
 }
