@@ -30,6 +30,12 @@ struct SelectionDrag {
     end: Option<Vec2>,
 }
 
+impl SelectionDrag {
+    fn is_dragging(&self) -> bool {
+        self.start.is_some() || self.end.is_some()
+    }
+}
+
 impl Plugin for CanvasPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SpritePickingSettings {
@@ -225,12 +231,14 @@ fn setup_sprite(
                 Pickable::default(),
             ))
             .observe(
-                |trigger: Trigger<Pointer<Drag>>,
+                |mut trigger: Trigger<Pointer<Drag>>,
                  mut transform: Query<&mut Transform>,
                  viewport_delta: PointerDelta<With<MainCamera>>| {
                     if trigger.event().button != PointerButton::Primary {
                         return;
                     }
+
+                    trigger.propagate(false);
 
                     let Ok(mut sprite_tr) = transform.get_mut(trigger.target()) else {
                         return;
@@ -243,9 +251,16 @@ fn setup_sprite(
                     }
                 },
             )
-            .observe(|trigger: Trigger<Pointer<Over>>, mut commands: Commands| {
-                commands.entity(trigger.target()).insert(Hovered);
-            })
+            .observe(
+                |trigger: Trigger<Pointer<Over>>,
+                 mut commands: Commands,
+                 selection_drag: Res<SelectionDrag>| {
+                    if selection_drag.is_dragging() {
+                        return;
+                    }
+                    commands.entity(trigger.target()).insert(Hovered);
+                },
+            )
             .observe(|trigger: Trigger<Pointer<Out>>, mut commands: Commands| {
                 commands.entity(trigger.target()).remove::<Hovered>();
             })
@@ -321,20 +336,13 @@ fn file_drop(
     mut commands: Commands,
     mut reader: EventReader<FileDragAndDrop>,
     assets: Res<AssetServer>,
-    main_window: Query<Entity, With<PrimaryWindow>>,
-    canvas_id: Query<Entity, With<Canvas>>,
+    main_window: Single<Entity, With<PrimaryWindow>>,
+    canvas_id: Single<Entity, With<Canvas>>,
 ) {
-    let Ok(main_window_id) = main_window.single() else {
-        return;
-    };
-    let Ok(canvas_id) = canvas_id.single() else {
-        return;
-    };
-
     for ev in reader.read() {
         match ev {
             FileDragAndDrop::DroppedFile { window, path_buf } => {
-                if *window != main_window_id {
+                if *window != *main_window {
                     continue;
                 }
 
@@ -342,7 +350,7 @@ fn file_drop(
                 // after we get the cursor position.
 
                 let img: Handle<Image> = assets.load(path_buf.clone());
-                commands.entity(canvas_id).with_child(DropImageFrame(img));
+                commands.entity(*canvas_id).with_child(DropImageFrame(img));
 
                 commands.send_event(RequestRedraw);
             }
@@ -354,17 +362,10 @@ fn file_drop(
 
 fn place_drop_image_frame(
     mut commands: Commands,
-    main_window: Query<&Window, With<PrimaryWindow>>,
-    main_camera: Query<(&Camera, &GlobalTransform), With<ControlCamera>>,
+    main_window: Single<&Window, With<PrimaryWindow>>,
+    main_camera: Single<(&Camera, &GlobalTransform), With<ControlCamera>>,
     image_frames: Query<(Entity, &DropImageFrame, &ChildOf)>,
 ) {
-    let Ok(main_window) = main_window.single() else {
-        return;
-    };
-    let Ok(main_camera) = main_camera.single() else {
-        return;
-    };
-
     let Some(cursor_position) = main_window.cursor_position() else {
         return;
     };
@@ -417,7 +418,7 @@ fn handle_selection_drag_end(
     image_frames: Query<(Entity, &GlobalTransform, &Sprite), With<ImageFrame>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     selected_query: Query<Entity, With<Selected>>,
-    main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    control_camera: Single<(&Camera, &GlobalTransform), With<ControlCamera>>,
 ) -> Result {
     let (Some(start), Some(end)) = (drag_state.start.take(), drag_state.end.take()) else {
         return Ok(());
@@ -434,8 +435,6 @@ fn handle_selection_drag_end(
             commands.entity(entity).remove::<Selected>();
         }
     }
-
-    let control_camera = main_camera.single()?;
 
     let selection_rect = Rect::from_corners(
         control_camera
@@ -465,13 +464,11 @@ fn handle_selection_drag_end(
 fn draw_selection_rectangle(
     drag_state: Res<SelectionDrag>,
     mut painter: ShapePainter,
-    control_camera: Query<(&Camera, &GlobalTransform), With<ControlCamera>>,
+    control_camera: Single<(&Camera, &GlobalTransform), With<ControlCamera>>,
 ) -> Result {
     let (Some(start), Some(end)) = (drag_state.start, drag_state.end) else {
         return Ok(());
     };
-
-    let control_camera = control_camera.single()?;
 
     let start = control_camera
         .0

@@ -310,10 +310,16 @@ fn drag_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
 }
 
 fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
+    let remove_icon = |mut commands: Commands, window: Query<Entity, With<Window>>| {
+        window.iter().for_each(|window| {
+            commands.entity(window).remove::<CursorIcon>();
+        });
+    };
+
     (
         Observe::new(
             move |mut trigger: Trigger<Pointer<Drag>>,
-                  main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+                  main_camera: Single<(&Camera, &GlobalTransform), With<MainCamera>>,
                   primary_window: Query<Entity, With<PrimaryWindow>>,
                   mut transform: Query<&mut Transform>,
                   mut commands: Commands,
@@ -330,9 +336,8 @@ fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
                     return;
                 };
 
-                let Ok((main_camera, main_camera_transform)) = main_camera.single() else {
-                    return;
-                };
+                let (main_camera, main_camera_transform) = *main_camera;
+
                 let primary_window = primary_window.single().ok();
 
                 if main_camera.target.normalize(primary_window).as_ref()
@@ -366,24 +371,16 @@ fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
             },
         ),
         Observe::new(
-            |mut trigger: Trigger<Pointer<Out>>,
-             mut commands: Commands,
-             window: Query<Entity, With<Window>>| {
+            IntoSystem::into_system(|mut trigger: Trigger<Pointer<Out>>| {
                 trigger.propagate(false);
-                window.iter().for_each(|window| {
-                    commands.entity(window).remove::<CursorIcon>();
-                });
-            },
+            })
+            .pipe(remove_icon),
         ),
         Observe::new(
-            |mut trigger: Trigger<Pointer<DragEnd>>,
-             mut commands: Commands,
-             window: Query<Entity, With<Window>>| {
+            IntoSystem::into_system(|mut trigger: Trigger<Pointer<DragEnd>>| {
                 trigger.propagate(false);
-                window.iter().for_each(|window| {
-                    commands.entity(window).remove::<CursorIcon>();
-                });
-            },
+            })
+            .pipe(remove_icon),
         ),
         Observe::new(|mut trigger: Trigger<Pointer<Click>>| {
             trigger.propagate(false);

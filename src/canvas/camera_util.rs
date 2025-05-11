@@ -14,10 +14,8 @@ use super::{ControlCamera, MainCamera};
 #[derive(SystemParam)]
 pub struct CameraTranslator<'w, 's> {
     transform_helper: TransformHelper<'w, 's>,
-    main_camera:
-        Query<'w, 's, (&'static Camera, Entity), (With<MainCamera>, Without<ControlCamera>)>,
-    control_camera:
-        Query<'w, 's, (&'static Camera, Entity), (With<ControlCamera>, Without<MainCamera>)>,
+    main_camera: Single<'w, (&'static Camera, Entity), With<MainCamera>>,
+    control_camera: Single<'w, (&'static Camera, Entity), With<ControlCamera>>,
 }
 
 impl<'w, 's> CameraTranslator<'w, 's> {
@@ -27,22 +25,21 @@ impl<'w, 's> CameraTranslator<'w, 's> {
     ///
     /// The returned `Transform` will always have a `z` value of 0.0.
     pub fn to_control(&self, main_transform: &GlobalTransform) -> Result<Transform> {
-        let main_camera = self.main_camera.single()?;
-        let control_camera = self.control_camera.single()?;
-
         let main_camera_transform = self
             .transform_helper
-            .compute_global_transform(main_camera.1)?;
+            .compute_global_transform(self.main_camera.1)?;
 
-        let main_viewport = main_camera
+        let main_viewport = self
+            .main_camera
             .0
             .world_to_viewport(&main_camera_transform, main_transform.translation())?;
 
         let control_camera_transform = self
             .transform_helper
-            .compute_global_transform(control_camera.1)?;
+            .compute_global_transform(self.control_camera.1)?;
 
-        let translation = control_camera
+        let translation = self
+            .control_camera
             .0
             .viewport_to_world_2d(&control_camera_transform, main_viewport)?;
 
@@ -59,22 +56,21 @@ impl<'w, 's> CameraTranslator<'w, 's> {
     }
 
     pub fn to_main(&self, control_transform: &GlobalTransform) -> Result<Transform> {
-        let main_camera = self.main_camera.single()?;
-        let control_camera = self.control_camera.single()?;
-
         let control_camera_transform = self
             .transform_helper
-            .compute_global_transform(control_camera.1)?;
+            .compute_global_transform(self.control_camera.1)?;
 
-        let control_viewport = control_camera
+        let control_viewport = self
+            .control_camera
             .0
             .world_to_viewport(&control_camera_transform, control_transform.translation())?;
 
         let main_camera_transform = self
             .transform_helper
-            .compute_global_transform(main_camera.1)?;
+            .compute_global_transform(self.main_camera.1)?;
 
-        let translation = main_camera
+        let translation = self
+            .main_camera
             .0
             .viewport_to_world_2d(&main_camera_transform, control_viewport)?;
 
@@ -91,16 +87,13 @@ impl<'w, 's> CameraTranslator<'w, 's> {
     }
 
     pub fn map_rect_to_main(&self, rect: &Rect) -> Result<Rect> {
-        let main_camera = self.main_camera.single()?;
-        let control_camera = self.control_camera.single()?;
-
         let control_camera_transform = self
             .transform_helper
-            .compute_global_transform(control_camera.1)?;
+            .compute_global_transform(self.control_camera.1)?;
 
         let main_camera_transform = self
             .transform_helper
-            .compute_global_transform(main_camera.1)?;
+            .compute_global_transform(self.main_camera.1)?;
 
         let affine = main_camera_transform.affine() * control_camera_transform.affine().inverse();
 
