@@ -84,7 +84,7 @@ struct ControlHandleCorner(Pivot);
 #[derive(Component)]
 struct ControlHandleRotation(Pivot);
 
-const CORNER_HANDLE_RADIUS: f32 = 10.0;
+const CORNER_HANDLE_RADIUS: f32 = 6.0;
 
 /// Attach [`ControlHandle`] to Sprite `sprite_id`
 pub fn spawn_control_handle(sprite_id: Entity) -> impl Command<Result> {
@@ -426,7 +426,7 @@ fn update_corner_handle(
     Ok(())
 }
 
-const ROTATION_HANDLE_EXTENSION: f32 = 50.0;
+const ROTATION_HANDLE_EXTENSION: f32 = 30.0;
 
 fn update_rotation_handle(
     mut commands: Commands,
