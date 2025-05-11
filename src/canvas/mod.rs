@@ -2,6 +2,7 @@ use crate::{
     sprite_picking::{SpritePickingMode, SpritePickingSettings},
     viewport_delta::PointerDelta,
 };
+use bevy::picking::backend::prelude::*;
 use bevy::{
     asset::LoadState,
     ecs::schedule::common_conditions,
@@ -22,12 +23,20 @@ mod picking;
 
 pub struct CanvasPlugin;
 
+/// Resource to track the state of a rectangular selection drag.
+#[derive(Default, Resource)]
+struct SelectionDrag {
+    start: Option<Vec2>,
+    end: Option<Vec2>,
+}
+
 impl Plugin for CanvasPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SpritePickingSettings {
             require_markers: false,
             picking_mode: SpritePickingMode::BoundingBox,
         })
+        .insert_resource(SelectionDrag::default())
         .add_plugins(Shape2dPlugin::default())
         .add_plugins(picking::AreaPickingPlugin {
             require_markers: false,
@@ -41,6 +50,7 @@ impl Plugin for CanvasPlugin {
                 dummy_paint.run_if(common_conditions::run_once),
             ),
         )
+        .add_systems(Update, draw_selection_rectangle)
         .add_systems(
             Update,
             (
@@ -113,7 +123,11 @@ fn startup(world: &mut World) {
                     commands.queue(handle::despawn_control_handle);
                 }
             },
-        );
+        )
+        .observe(handle_canvas_click)
+        .observe(handle_selection_drag_start)
+        .observe(handle_selection_drag)
+        .observe(handle_selection_drag_end);
 }
 
 fn dummy_paint(mut painter: ShapePainter) {
@@ -171,6 +185,10 @@ pub struct ImageFrame(pub Handle<Image>);
 /// Currently hovered frame.
 #[derive(Component)]
 pub struct Hovered;
+
+/// Currently selected frame.
+#[derive(Component, Default)]
+pub struct Selected;
 
 fn setup_sprite(
     mut commands: Commands,
@@ -232,9 +250,34 @@ fn setup_sprite(
                 commands.entity(trigger.target()).remove::<Hovered>();
             })
             .observe(
-                |mut trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
+                |mut trigger: Trigger<Pointer<Click>>,
+                 mut commands: Commands,
+                 selected_query: Query<Entity, With<Selected>>,
+                 keyboard_input: Res<ButtonInput<KeyCode>>| {
+                    // Prevent click from propagating to canvas background
                     trigger.propagate(false);
-                    commands.queue(handle::spawn_control_handle(trigger.target()));
+
+                    let ctrl_pressed =
+                        keyboard_input.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+                    let target_entity = trigger.target();
+
+                    if ctrl_pressed {
+                        // Toggle selection
+                        if selected_query.get(target_entity).is_ok() {
+                            commands.entity(target_entity).remove::<Selected>();
+                        } else {
+                            commands.entity(target_entity).insert(Selected);
+                        }
+                    } else {
+                        // Deselect all others and select this one
+                        for entity in selected_query.iter() {
+                            if entity != target_entity {
+                                commands.entity(entity).remove::<Selected>();
+                            }
+                        }
+                        commands.entity(target_entity).insert(Selected);
+                        commands.queue(handle::spawn_control_handle(target_entity));
+                    }
                 },
             )
             .id();
@@ -246,18 +289,25 @@ fn setup_sprite(
 
 fn draw_border(
     camera_translator: CameraTranslator,
-    hovered: Query<(&GlobalTransform, &Sprite), With<Hovered>>,
+    query: Query<(&GlobalTransform, &Sprite, AnyOf<(&Hovered, &Selected)>)>,
     mut painter: ShapePainter,
 ) -> Result {
     painter.render_layers = Some(CONTROL_LAYER);
     painter.hollow = true;
     painter.corner_radii = Vec4::splat(5.0);
 
-    for (transform, sprite) in hovered {
+    for (transform, sprite, (hovered, selected)) in query.iter() {
         let control_transform = camera_translator.to_control(transform)?;
 
         let size = sprite.custom_size.unwrap_or(Vec2::new(0.0, 0.0)) * control_transform.scale.xy();
         painter.transform = control_transform.with_scale(Vec3::ONE);
+
+        if selected.is_some() {
+            painter.color = Color::srgb(0.0, 1.0, 0.0);
+        } else if hovered.is_some() {
+            painter.color = Color::srgb(1.0, 1.0, 1.0);
+        }
+
         painter.rect(size);
     }
 
@@ -305,7 +355,7 @@ fn file_drop(
 fn place_drop_image_frame(
     mut commands: Commands,
     main_window: Query<&Window, With<PrimaryWindow>>,
-    main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    main_camera: Query<(&Camera, &GlobalTransform), With<ControlCamera>>,
     image_frames: Query<(Entity, &DropImageFrame, &ChildOf)>,
 ) {
     let Ok(main_window) = main_window.single() else {
@@ -332,5 +382,134 @@ fn place_drop_image_frame(
             Transform::from_translation(world_position.extend(0.0)),
         ));
         commands.entity(entity).despawn();
+    }
+}
+
+/// System to handle the start of a selection drag on the canvas background.
+fn handle_selection_drag_start(
+    trigger: Trigger<Pointer<DragStart>>,
+    mut drag_state: ResMut<SelectionDrag>,
+) {
+    if trigger.event().button != PointerButton::Primary {
+        return;
+    }
+
+    drag_state.start = Some(trigger.pointer_location.position);
+}
+
+/// System to handle the ongoing selection drag.
+fn handle_selection_drag(trigger: Trigger<Pointer<Drag>>, mut drag_state: ResMut<SelectionDrag>) {
+    if drag_state.start.is_none() {
+        return;
+    }
+    if trigger.event().button != PointerButton::Primary {
+        return;
+    }
+
+    drag_state.end = Some(trigger.pointer_location.position);
+}
+
+/// System to handle the end of a selection drag.
+fn handle_selection_drag_end(
+    trigger: Trigger<Pointer<DragEnd>>,
+    mut commands: Commands,
+    mut drag_state: ResMut<SelectionDrag>,
+    image_frames: Query<(Entity, &GlobalTransform, &Sprite), With<ImageFrame>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    selected_query: Query<Entity, With<Selected>>,
+    main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+) -> Result {
+    let (Some(start), Some(end)) = (drag_state.start.take(), drag_state.end.take()) else {
+        return Ok(());
+    };
+    if trigger.event().button != PointerButton::Primary {
+        return Ok(());
+    }
+
+    let ctrl_pressed = keyboard_input.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+
+    if !ctrl_pressed {
+        // Deselect all if Ctrl is not held
+        for entity in selected_query.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+    }
+
+    let control_camera = main_camera.single()?;
+
+    let selection_rect = Rect::from_corners(
+        control_camera
+            .0
+            .viewport_to_world_2d(control_camera.1, start)?,
+        control_camera
+            .0
+            .viewport_to_world_2d(control_camera.1, end)?,
+    );
+
+    for (entity, transform, sprite) in image_frames.iter() {
+        let sprite_size = sprite.custom_size.unwrap_or(Vec2::ZERO);
+        let sprite_rect = Rect::from_center_size(
+            transform.translation().xy(),
+            sprite_size * transform.scale().xy(),
+        );
+
+        if !selection_rect.intersect(sprite_rect).is_empty() {
+            commands.entity(entity).insert(Selected);
+        }
+    }
+
+    Ok(())
+}
+
+/// System to draw the selection rectangle.
+fn draw_selection_rectangle(
+    drag_state: Res<SelectionDrag>,
+    mut painter: ShapePainter,
+    control_camera: Query<(&Camera, &GlobalTransform), With<ControlCamera>>,
+) -> Result {
+    let (Some(start), Some(end)) = (drag_state.start, drag_state.end) else {
+        return Ok(());
+    };
+
+    let control_camera = control_camera.single()?;
+
+    let start = control_camera
+        .0
+        .viewport_to_world_2d(control_camera.1, start)?;
+    let end = control_camera
+        .0
+        .viewport_to_world_2d(control_camera.1, end)?;
+
+    let selection_rect = Rect::from_corners(start, end);
+
+    painter.render_layers = Some(CONTROL_LAYER);
+    painter.hollow = true;
+    painter.color = Color::srgba(0.5, 0.5, 1.0, 0.5);
+    painter.transform = Transform::from_translation(selection_rect.center().extend(0.0));
+    painter.rect(selection_rect.size());
+
+    Ok(())
+}
+
+/// System to handle clicks on the canvas background for deselection.
+fn handle_canvas_click(
+    trigger: Trigger<Pointer<Click>>,
+    mut commands: Commands,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    selected_query: Query<Entity, With<Selected>>,
+) {
+    if trigger.button != PointerButton::Primary {
+        return;
+    }
+
+    let ctrl_pressed = keyboard_input.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+
+    if ctrl_pressed {
+        return;
+    }
+
+    // Deselect all if clicking on canvas background without Ctrl
+    for entity in selected_query.iter() {
+        commands.entity(entity).remove::<Selected>();
     }
 }

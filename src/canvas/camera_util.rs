@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use bevy::{
     ecs::system::SystemParam, prelude::*, render::camera::NormalizedRenderTarget,
     window::PrimaryWindow,
@@ -53,6 +55,58 @@ impl<'w, 's> CameraTranslator<'w, 's> {
             translation: translation.extend(0.0),
             scale,
             rotation,
+        })
+    }
+
+    pub fn to_main(&self, control_transform: &GlobalTransform) -> Result<Transform> {
+        let main_camera = self.main_camera.single()?;
+        let control_camera = self.control_camera.single()?;
+
+        let control_camera_transform = self
+            .transform_helper
+            .compute_global_transform(control_camera.1)?;
+
+        let control_viewport = control_camera
+            .0
+            .world_to_viewport(&control_camera_transform, control_transform.translation())?;
+
+        let main_camera_transform = self
+            .transform_helper
+            .compute_global_transform(main_camera.1)?;
+
+        let translation = main_camera
+            .0
+            .viewport_to_world_2d(&main_camera_transform, control_viewport)?;
+
+        let affine = control_transform.affine()
+            * main_camera_transform.affine()
+            * control_camera_transform.affine().inverse();
+        let (scale, rotation, _) = affine.to_scale_rotation_translation();
+
+        Ok(Transform {
+            translation: translation.extend(0.0),
+            scale,
+            rotation,
+        })
+    }
+
+    pub fn map_rect_to_main(&self, rect: &Rect) -> Result<Rect> {
+        let main_camera = self.main_camera.single()?;
+        let control_camera = self.control_camera.single()?;
+
+        let control_camera_transform = self
+            .transform_helper
+            .compute_global_transform(control_camera.1)?;
+
+        let main_camera_transform = self
+            .transform_helper
+            .compute_global_transform(main_camera.1)?;
+
+        let affine = main_camera_transform.affine() * control_camera_transform.affine().inverse();
+
+        Ok(Rect {
+            min: affine.transform_point3(rect.min.extend(0.0)).truncate(),
+            max: affine.transform_point3(rect.max.extend(0.0)).truncate(),
         })
     }
 }
