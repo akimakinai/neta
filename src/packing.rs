@@ -2,6 +2,7 @@ use bevy::{
     math::{Mat2, Vec2},
     prelude::Deref,
 };
+use std::cmp::Ordering;
 
 #[derive(Deref, Clone, Debug)]
 pub struct EdgeVectors(pub Vec<Vec2>);
@@ -105,9 +106,9 @@ impl ShapePosition {
 }
 
 fn fill(placed_shapes: &[ShapePosition], shape_to_place: &ShapePosition) -> ShapePosition {
-    for placed in placed_shapes {
-        let placed_vertices = placed.vertices();
+    let mut candidates = vec![shape_to_place.clone()];
 
+    for placed in placed_shapes {
         let nfp = minkowski_sum(&placed.edges, &shape_to_place.edges.neg());
 
         let mut nfp_vertices = ShapePosition {
@@ -131,19 +132,45 @@ fn fill(placed_shapes: &[ShapePosition], shape_to_place: &ShapePosition) -> Shap
             };
 
             let mut inside = false;
-            for edge in translated_shape.vertices() {
-                if is_inside(&placed_vertices, edge) {
-                    inside = true;
-                    break;
+            for placed2 in placed_shapes {
+                let placed2_vertices = placed2.vertices();
+
+                for edge in translated_shape.vertices() {
+                    if is_inside(&placed2_vertices, edge) {
+                        inside = true;
+                        break;
+                    }
                 }
             }
             if !inside {
-                return translated_shape;
+                candidates.push(translated_shape);
             }
         }
     }
 
-    shape_to_place.clone()
+    // Needs heuristic (like, choosing from 4 directions based on original translation)
+    // For now, choose one that is nearest to original translation but not equal
+    candidates.sort_by(|a, b| {
+        (a.translation - shape_to_place.translation)
+            .length()
+            .partial_cmp(&(b.translation - shape_to_place.translation).length())
+            .expect("NaN")
+    });
+    candidates.sort_by(|a, b| {
+        if a.translation == shape_to_place.translation
+            && b.translation != shape_to_place.translation
+        {
+            Ordering::Greater
+        } else if a.translation != shape_to_place.translation
+            && b.translation == shape_to_place.translation
+        {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+    });
+
+    candidates.swap_remove(0)
 }
 
 /// Check if a point is inside a polygon (convex, CCW vertex list).
