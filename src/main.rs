@@ -12,6 +12,7 @@ mod error;
 #[cfg(feature = "dev")]
 mod inspector;
 mod observe_component;
+mod packing;
 mod sprite_picking;
 mod ui;
 mod viewport_delta;
