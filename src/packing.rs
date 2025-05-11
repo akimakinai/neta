@@ -3,18 +3,19 @@ use bevy::{
     prelude::Deref,
 };
 
-#[derive(Deref, Clone)]
+#[derive(Deref, Clone, Debug)]
 pub struct EdgeVectors(pub Vec<Vec2>);
 
 impl EdgeVectors {
     pub fn with_rect_size_rotation(size: Vec2, rotation: f32) -> Self {
         let rotation_matrix = Mat2::from_angle(rotation);
 
-        let mut points = Vec::new();
-        points.push(rotation_matrix * Vec2::new(0.0, -size.y));
-        points.push(rotation_matrix * Vec2::new(size.x, 0.0));
-        points.push(rotation_matrix * Vec2::new(0.0, size.y));
-        points.push(rotation_matrix * Vec2::new(-size.x, 0.0));
+        let mut points = vec![
+            rotation_matrix * Vec2::new(0.0, -size.y),
+            rotation_matrix * Vec2::new(size.x, 0.0),
+            rotation_matrix * Vec2::new(0.0, size.y),
+            rotation_matrix * Vec2::new(-size.x, 0.0),
+        ];
 
         EdgeVectors(points)
     }
@@ -80,7 +81,7 @@ fn minkowski_sum(a: &EdgeVectors, b: &EdgeVectors) -> EdgeVectors {
     EdgeVectors(result)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ShapePosition {
     pub translation: Vec2,
     pub edges: EdgeVectors,
@@ -142,28 +143,23 @@ fn fill(placed_shapes: &[ShapePosition], shape_to_place: &ShapePosition) -> Shap
         }
     }
 
-    return shape_to_place.clone();
+    shape_to_place.clone()
 }
 
-fn is_inside(polygon: &Vec<Vec2>, point: Vec2) -> bool {
-    let mut is_cross_positive = None;
-
+/// Check if a point is inside a polygon (convex, CCW vertex list).
+fn is_inside(polygon: &[Vec2], point: Vec2) -> bool {
     for i in 0..polygon.len() {
         let a = polygon[i];
         let b = polygon[(i + 1) % polygon.len()];
 
         let cross = (b - a).perp_dot(point - a);
 
-        if let Some(is_cross_positive) = is_cross_positive {
-            if is_cross_positive != (cross > 0.0) {
-                return false;
-            }
-        } else {
-            is_cross_positive = Some(cross > 0.0);
+        if cross < 0.0 {
+            return false;
         }
     }
 
-    return true;
+    true
 }
 
 #[cfg(test)]
