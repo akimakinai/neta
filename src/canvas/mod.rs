@@ -3,8 +3,11 @@ use crate::{
     viewport_delta::PointerDelta,
 };
 use bevy::{
-    asset::LoadState, ecs::schedule::common_conditions, prelude::*, render::view::RenderLayers,
-    window::PrimaryWindow,
+    asset::LoadState,
+    ecs::schedule::common_conditions,
+    prelude::*,
+    render::view::RenderLayers,
+    window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_vector_shapes::{
     Shape2dPlugin,
@@ -36,6 +39,14 @@ impl Plugin for CanvasPlugin {
             (
                 setup_sprite,
                 dummy_paint.run_if(common_conditions::run_once),
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                file_drop,
+                place_drop_image_frame
+                    .run_if(common_conditions::any_with_component::<DropImageFrame>),
             ),
         )
         .add_systems(
@@ -165,10 +176,10 @@ fn setup_sprite(
     mut commands: Commands,
     images: Res<Assets<Image>>,
     asset_server: Res<AssetServer>,
-    image_frames: Query<(Entity, &ImageFrame), Without<Sprite>>,
+    image_frames: Query<(Entity, &ImageFrame, Option<&Transform>), Without<Sprite>>,
     mut index: Local<u32>,
 ) {
-    for (entity, image_frame) in image_frames {
+    for (entity, image_frame, orig_transform) in image_frames {
         let Some(image) = images.get(&image_frame.0) else {
             if matches!(
                 asset_server.get_load_state(&image_frame.0),
@@ -181,6 +192,9 @@ fn setup_sprite(
         };
         let size = image.texture_descriptor.size;
 
+        let mut transform = orig_transform.copied().unwrap_or_default();
+        transform.translation.z = *index as f32 / 65536.0;
+
         let id = commands
             .entity(entity)
             .insert((
@@ -189,7 +203,7 @@ fn setup_sprite(
                     custom_size: Some(Vec2::new(size.width as f32, size.height as f32)),
                     ..default()
                 },
-                Transform::from_xyz(0.0, 0.0, *index as f32 / 65536.0),
+                transform,
                 Pickable::default(),
             ))
             .observe(
@@ -248,4 +262,75 @@ fn draw_border(
     }
 
     Ok(())
+}
+
+#[derive(Component)]
+struct DropImageFrame(Handle<Image>);
+
+fn file_drop(
+    mut commands: Commands,
+    mut reader: EventReader<FileDragAndDrop>,
+    assets: Res<AssetServer>,
+    main_window: Query<Entity, With<PrimaryWindow>>,
+    canvas_id: Query<Entity, With<Canvas>>,
+) {
+    let Ok(main_window_id) = main_window.single() else {
+        return;
+    };
+    let Ok(canvas_id) = canvas_id.single() else {
+        return;
+    };
+
+    for ev in reader.read() {
+        match ev {
+            FileDragAndDrop::DroppedFile { window, path_buf } => {
+                if *window != main_window_id {
+                    continue;
+                }
+
+                // `Window::cursor_position` would return `None` at this point, so we need to spawn the frame
+                // after we get the cursor position.
+
+                let img: Handle<Image> = assets.load(path_buf.clone());
+                commands.entity(canvas_id).with_child(DropImageFrame(img));
+
+                commands.send_event(RequestRedraw);
+            }
+            FileDragAndDrop::HoveredFile { .. } => {}
+            FileDragAndDrop::HoveredFileCanceled { .. } => {}
+        }
+    }
+}
+
+fn place_drop_image_frame(
+    mut commands: Commands,
+    main_window: Query<&Window, With<PrimaryWindow>>,
+    main_camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    image_frames: Query<(Entity, &DropImageFrame, &ChildOf)>,
+) {
+    let Ok(main_window) = main_window.single() else {
+        return;
+    };
+    let Ok(main_camera) = main_camera.single() else {
+        return;
+    };
+
+    let Some(cursor_position) = main_window.cursor_position() else {
+        return;
+    };
+
+    let Ok(world_position) = main_camera
+        .0
+        .viewport_to_world_2d(main_camera.1, cursor_position)
+    else {
+        return;
+    };
+
+    for (entity, image_frame, child_of) in image_frames {
+        commands.entity(child_of.parent()).with_child((
+            ImageFrame(image_frame.0.clone()),
+            Transform::from_translation(world_position.extend(0.0)),
+        ));
+        commands.entity(entity).despawn();
+    }
 }
