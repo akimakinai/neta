@@ -1,5 +1,5 @@
 use crate::{
-    canvas::{Canvas, Hovered, ImageFrame},
+    canvas::{Canvas, Hovered, ImageFrame, Selected},
     observe_component::Observe,
 };
 use bevy::prelude::*;
@@ -14,8 +14,10 @@ impl Plugin for UiPlugin {
     }
 }
 
-#[derive(Component)]
-struct ContextMenu;
+#[derive(Component, Default)]
+struct ContextMenu {
+    target_frames: Vec<Entity>,
+}
 
 /// Only show this item for the context menu on a frame
 #[derive(Component)]
@@ -25,12 +27,59 @@ struct FrameContextItem;
 #[derive(Component)]
 struct CanvasContextItem;
 
+fn setup(world: &mut World) {
+    let menu_background = world.resource::<AssetServer>().load("images/tile_0028.png");
+
+    let menu_background_node = ImageNode {
+        image: menu_background,
+        image_mode: NodeImageMode::Sliced(TextureSlicer {
+            border: BorderRect::all(8.),
+            sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
+            ..default()
+        }),
+        ..default()
+    };
+
+    // spawn a dummy entity to fix 1-frame delay
+    world.spawn((DummyForShaderInit, menu_background_node.clone()));
+
+    world.spawn((
+        Name::new("ContextMenu"),
+        ContextMenu::default(),
+        Visibility::Hidden,
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(5.0),
+            left: Val::Px(5.0),
+            padding: UiRect::axes(Val::Px(10.0), Val::Px(10.0)),
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+        menu_background_node.clone(),
+        children![
+            (
+                CanvasContextItem,
+                button(world, "Add"),
+                Observe::new(on_add_button_clicked)
+            ),
+            (
+                FrameContextItem,
+                button(world, "Remove"),
+                Observe::new(on_remove_button_clicked)
+            ),
+            button(world, "Organize")
+        ],
+    ));
+}
+
 fn on_add_button_clicked(
-    _trigger: Trigger<Pointer<Click>>,
+    mut trigger: Trigger<Pointer<Click>>,
     mut commands: Commands,
     canvas_id: Query<Entity, With<Canvas>>,
     assets: Res<AssetServer>,
 ) {
+    trigger.propagate(false);
+
     let canvas_id = canvas_id.single().unwrap();
     let files = rfd::FileDialog::new().pick_files();
     info!(?files);
@@ -39,6 +88,18 @@ fn on_add_button_clicked(
             let img: Handle<Image> = assets.load(file);
             commands.entity(canvas_id).with_child(ImageFrame(img));
         }
+    }
+}
+
+fn on_remove_button_clicked(
+    mut trigger: Trigger<Pointer<Click>>,
+    mut commands: Commands,
+    context_menu: Single<&ContextMenu>,
+) {
+    trigger.propagate(false);
+
+    for target in context_menu.target_frames.iter() {
+        commands.entity(*target).despawn();
     }
 }
 
@@ -64,55 +125,15 @@ fn despawn_dummy(mut commands: Commands, dummy: Query<Entity, With<DummyForShade
     }
 }
 
-fn setup(world: &mut World) {
-    let menu_background = world.resource::<AssetServer>().load("images/tile_0028.png");
-
-    let menu_background_node = ImageNode {
-        image: menu_background,
-        image_mode: NodeImageMode::Sliced(TextureSlicer {
-            border: BorderRect::all(8.),
-            sides_scale_mode: SliceScaleMode::Tile { stretch_value: 1.0 },
-            ..default()
-        }),
-        ..default()
-    };
-
-    // spawn a dummy entity to fix 1-frame delay
-    world.spawn((DummyForShaderInit, menu_background_node.clone()));
-
-    world.spawn((
-        Name::new("ContextMenu"),
-        ContextMenu,
-        Visibility::Hidden,
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(5.0),
-            left: Val::Px(5.0),
-            padding: UiRect::axes(Val::Px(10.0), Val::Px(10.0)),
-            flex_direction: FlexDirection::Column,
-            ..default()
-        },
-        menu_background_node.clone(),
-        children![
-            (
-                CanvasContextItem,
-                button(world, "Add"),
-                Observe::new(on_add_button_clicked)
-            ),
-            (FrameContextItem, button(world, "Remove")),
-            button(world, "Organize")
-        ],
-    ));
-}
-
-fn update_context_item_display(
+fn update_context_menu_state(
     mut set: ParamSet<(
         Query<&mut Node, With<CanvasContextItem>>,
         Query<&mut Node, With<FrameContextItem>>,
     )>,
-    hovered: Query<(), With<Hovered>>,
+    target: Query<Entity, Or<(With<Hovered>, With<Selected>)>>,
+    mut context_menu: Single<&mut ContextMenu>,
 ) {
-    let on_canvas = hovered.is_empty();
+    let on_canvas = target.is_empty();
 
     let (canvas_display, frame_display) = if on_canvas {
         (Display::default(), Display::None)
@@ -127,6 +148,8 @@ fn update_context_item_display(
     for mut node in set.p1().iter_mut() {
         node.display = frame_display;
     }
+
+    context_menu.target_frames = target.iter().collect();
 }
 
 /// Create a button with the given label.
@@ -207,7 +230,7 @@ fn on_click(
 
     // Secondary button clicked
 
-    commands.run_system_cached(update_context_item_display);
+    commands.run_system_cached(update_context_menu_state);
 
     let position = trigger.pointer_location.position;
     node.left = Val::Px(position.x);

@@ -16,6 +16,7 @@ use bevy_vector_shapes::{
     shapes::{DiscPainter, LinePainter, RectPainter},
 };
 use camera_util::CameraTranslator;
+use handle::{ControlHandle, CurrentControlHandle};
 
 mod camera_util;
 mod handle;
@@ -69,7 +70,7 @@ impl Plugin for CanvasPlugin {
             PostUpdate,
             draw_border
                 .after(TransformSystem::TransformPropagate)
-                .run_if(|current: Option<Res<handle::CurrentControlHandle>>| current.is_none()),
+                .run_if(|current: Option<Res<CurrentControlHandle>>| current.is_none()),
         );
     }
 }
@@ -219,7 +220,7 @@ fn setup_sprite(
         let mut transform = orig_transform.copied().unwrap_or_default();
         transform.translation.z = *index as f32 / 65536.0;
 
-        let id = commands
+        commands
             .entity(entity)
             .insert((
                 Sprite {
@@ -269,6 +270,10 @@ fn setup_sprite(
                  mut commands: Commands,
                  selected_query: Query<Entity, With<Selected>>,
                  keyboard_input: Res<ButtonInput<KeyCode>>| {
+                    if trigger.button != PointerButton::Primary {
+                        return;
+                    }
+
                     // Prevent click from propagating to canvas background
                     trigger.propagate(false);
 
@@ -295,8 +300,22 @@ fn setup_sprite(
                     }
                 },
             )
-            .id();
-        info!("Spawned sprite with id: {id:?}");
+            .observe(
+                |trigger: Trigger<OnRemove>,
+                 mut commands: Commands,
+                 current: Option<Res<CurrentControlHandle>>,
+                 control_handle: Query<&ControlHandle>| {
+                    let Some(current) = current else {
+                        return;
+                    };
+                    if control_handle
+                        .get(current.0)
+                        .is_ok_and(|c| c.0 == trigger.target())
+                    {
+                        commands.queue(handle::despawn_control_handle);
+                    }
+                },
+            );
 
         *index += 1;
     }
