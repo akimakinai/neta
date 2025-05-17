@@ -2,7 +2,6 @@ use crate::{
     sprite_picking::{SpritePickingMode, SpritePickingSettings},
     viewport_delta::PointerDelta,
 };
-use bevy::picking::backend::prelude::*;
 use bevy::{
     asset::LoadState,
     ecs::schedule::common_conditions,
@@ -438,6 +437,7 @@ fn handle_selection_drag_end(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     selected_query: Query<Entity, With<Selected>>,
     control_camera: Single<(&Camera, &GlobalTransform), With<ControlCamera>>,
+    camera_translator: CameraTranslator,
 ) -> Result {
     let (Some(start), Some(end)) = (drag_state.start.take(), drag_state.end.take()) else {
         return Ok(());
@@ -463,6 +463,7 @@ fn handle_selection_drag_end(
             .0
             .viewport_to_world_2d(control_camera.1, end)?,
     );
+    let selection_rect = camera_translator.map_rect_to_main(&selection_rect)?;
 
     for (entity, transform, sprite) in image_frames.iter() {
         let sprite_size = sprite.custom_size.unwrap_or(Vec2::ZERO);
