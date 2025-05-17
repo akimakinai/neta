@@ -2,7 +2,6 @@ use bevy::{
     math::{Mat2, Vec2},
     prelude::Deref,
 };
-use std::cmp::Ordering;
 
 /// A polygon represented by its edge vectors (CCW order).
 #[derive(Deref, Clone, Debug)]
@@ -149,7 +148,7 @@ pub fn fill<'a>(
     shape_to_place: &ShapePosition,
     offset: f32,
 ) -> ShapePosition {
-    let mut candidates = vec![shape_to_place.clone()];
+    let mut candidates = vec![];
 
     for placed in placed_shapes.clone() {
         let nfp = minkowski_sum(&placed.edges, &shape_to_place.edges);
@@ -202,25 +201,12 @@ pub fn fill<'a>(
     }
 
     // Needs heuristic (like, choosing from 4 directions based on original translation)
-    // For now, choose one that is nearest to original translation but not equal
+    // For now, choose one that is nearest to original translation
     candidates.sort_by(|a, b| {
         (a.translation - shape_to_place.translation)
             .length()
             .partial_cmp(&(b.translation - shape_to_place.translation).length())
             .expect("NaN")
-    });
-    candidates.sort_by(|a, b| {
-        if a.translation == shape_to_place.translation
-            && b.translation != shape_to_place.translation
-        {
-            Ordering::Greater
-        } else if a.translation != shape_to_place.translation
-            && b.translation == shape_to_place.translation
-        {
-            Ordering::Less
-        } else {
-            Ordering::Equal
-        }
     });
 
     candidates.swap_remove(0)
