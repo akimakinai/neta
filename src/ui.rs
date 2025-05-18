@@ -118,11 +118,12 @@ fn on_organize_button_clicked(
 
     for &target in context_menu.target_frames.iter() {
         let (sprite, transform) = sprite.get(target).unwrap();
+        let z_angle = transform.rotation.to_euler(EulerRot::XYZ).2;
         let shape = ShapePosition {
             translation: transform.translation.xy(),
             edges: EdgeVectors::with_rect_size_rotation(
                 sprite.custom_size.unwrap_or(Vec2::ZERO),
-                transform.rotation.angle_between(Quat::from_rotation_z(0.0)),
+                z_angle,
             ),
         };
 
