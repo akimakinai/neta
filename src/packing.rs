@@ -79,14 +79,13 @@ fn minkowski_sum(a: &EdgeVectors, b: &EdgeVectors) -> EdgeVectors {
 
     let mut result = Vec::with_capacity(a.len().max(b.len()));
 
-    let mut cur = Vec2::ZERO;
+    let mut cur = a[i] + b[j];
 
     // Iterate until we have traversed all edges of both shapes
     while i_inc < a.len() || j_inc < b.len() {
         let a_i = a[i];
         let b_j = b[j];
 
-        cur += a_i + b_j;
         result.push(cur);
 
         let cross = a_i.perp_dot(b_j);
@@ -94,10 +93,12 @@ fn minkowski_sum(a: &EdgeVectors, b: &EdgeVectors) -> EdgeVectors {
         if cross >= 0.0 && i_inc < a.len() {
             i = (i + 1) % a.len();
             i_inc += 1;
+            cur += a[i];
         }
         if cross <= 0.0 && j_inc < b.len() {
             j = (j + 1) % b.len();
             j_inc += 1;
+            cur += b[j];
         }
     }
 
@@ -163,7 +164,6 @@ impl ShapePosition {
     }
 }
 
-// TODO: add `gap` paremeter
 pub fn fill<'a>(
     placed_shapes: impl IntoIterator<Item = &'a ShapePosition> + Clone,
     shape_to_place: &ShapePosition,
@@ -174,6 +174,8 @@ pub fn fill<'a>(
 
     for placed in placed_shapes.clone() {
         let nfp = minkowski_sum(&placed.edges, &shape_to_place.edges);
+        // debug_draw_vertices(placed.vertices());
+        // debug_draw_vertices(shape_to_place.vertices());
 
         let mut nfp_shape = ShapePosition {
             translation: placed.translation,
@@ -181,6 +183,7 @@ pub fn fill<'a>(
         };
         nfp_shape.offset(offset);
         let mut nfp_vertices = nfp_shape.vertices();
+        // debug_draw_vertices(nfp_vertices.clone());
 
         // Sort by distance to initial translation of `shape_to_place`
         nfp_vertices.sort_by(|v, w| {

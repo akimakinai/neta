@@ -8,6 +8,7 @@ use bevy::{
 };
 
 mod canvas;
+mod debug_gizmo;
 mod error;
 #[cfg(feature = "dev")]
 mod inspector;
@@ -41,7 +42,8 @@ fn main() {
     #[cfg(feature = "dev")]
     app.add_plugins(DebugPickingPlugin)
         .insert_resource(DebugPickingMode::Normal)
-        .add_plugins(inspector::plugin);
+        .add_plugins(inspector::plugin)
+        .add_plugins(debug_gizmo::DebugGizmoPlugin);
 
     app.add_plugins((canvas::CanvasPlugin, ui::UiPlugin));
 
