@@ -1,7 +1,6 @@
 use crate::{
-    canvas::{Canvas, Hovered, ImageFrame, Selected},
+    canvas::{Canvas, Hovered, ImageFrame, Selected, organize_canvas},
     observe_component::Observe,
-    packing::{EdgeVectors, ShapePosition},
 };
 use bevy::prelude::*;
 
@@ -109,48 +108,12 @@ fn on_remove_button_clicked(
 
 fn on_organize_button_clicked(
     mut trigger: Trigger<Pointer<Click>>,
+    mut commands: Commands,
     context_menu: Single<&ContextMenu>,
-    mut sprite: Query<(&mut Sprite, &mut Transform)>,
 ) {
     trigger.propagate(false);
 
-    let mut shape_ids = Vec::with_capacity(context_menu.target_frames.len());
-
-    for &target in context_menu.target_frames.iter() {
-        let (sprite, transform) = sprite.get(target).unwrap();
-        let z_angle = transform.rotation.to_euler(EulerRot::XYZ).2;
-        let shape = ShapePosition {
-            translation: transform.translation.xy(),
-            edges: EdgeVectors::with_rect_size_rotation(
-                sprite.custom_size.unwrap_or(Vec2::ZERO),
-                z_angle,
-            ),
-        };
-
-        shape_ids.push((target, shape));
-    }
-
-    let mut placed = Vec::with_capacity(shape_ids.len());
-
-    let Some(pop) = shape_ids.pop() else {
-        return;
-    };
-    placed.push(pop);
-
-    for (target, shape) in shape_ids {
-        let new_shape = crate::packing::fill(
-            placed.iter().map(|t: &(Entity, ShapePosition)| &t.1),
-            &shape,
-            10.0,
-            Some(4),
-        );
-        placed.push((target, new_shape));
-    }
-
-    for (target, shape) in placed {
-        let (_, mut transform) = sprite.get_mut(target).unwrap();
-        transform.translation = shape.translation.extend(transform.translation.z);
-    }
+    commands.run_system_cached_with(organize_canvas, context_menu.target_frames.clone());
 }
 
 #[derive(Component)]

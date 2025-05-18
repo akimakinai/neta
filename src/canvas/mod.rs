@@ -1,6 +1,5 @@
 use crate::{
-    sprite_picking::{SpritePickingMode, SpritePickingSettings},
-    viewport_delta::PointerDelta,
+    packing::{EdgeVectors, ShapePosition}, sprite_picking::{SpritePickingMode, SpritePickingSettings}, viewport_delta::PointerDelta
 };
 use bevy::{
     asset::LoadState,
@@ -345,6 +344,51 @@ fn draw_border(
     }
 
     Ok(())
+}
+
+/// One-time system to organize the canvas. Use `Commands::run_system_cached_with` to run it
+/// with [`ImageFrame`] entities.
+pub fn organize_canvas(
+    In(target): In<Vec<Entity>>,
+    mut sprite: Query<(&mut Sprite, &mut Transform)>,
+) {
+    let mut shape_ids = Vec::with_capacity(target.len());
+
+    for &target in &target {
+        let (sprite, transform) = sprite.get(target).unwrap();
+        let z_angle = transform.rotation.to_euler(EulerRot::XYZ).2;
+        let shape = ShapePosition {
+            translation: transform.translation.xy(),
+            edges: EdgeVectors::with_rect_size_rotation(
+                sprite.custom_size.unwrap_or(Vec2::ZERO),
+                z_angle,
+            ),
+        };
+
+        shape_ids.push((target, shape));
+    }
+
+    let mut placed = Vec::with_capacity(shape_ids.len());
+
+    let Some(pop) = shape_ids.pop() else {
+        return;
+    };
+    placed.push(pop);
+
+    for (target, shape) in shape_ids {
+        let new_shape = crate::packing::fill(
+            placed.iter().map(|t: &(Entity, ShapePosition)| &t.1),
+            &shape,
+            10.0,
+            Some(4),
+        );
+        placed.push((target, new_shape));
+    }
+
+    for (target, shape) in placed {
+        let (_, mut transform) = sprite.get_mut(target).unwrap();
+        transform.translation = shape.translation.extend(transform.translation.z);
+    }
 }
 
 #[derive(Component)]
