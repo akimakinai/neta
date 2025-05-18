@@ -145,22 +145,37 @@ impl ShapePosition {
     }
 
     fn is_overlapping(&self, other: &ShapePosition) -> bool {
-        let self_vertices = self.vertices();
-        let other_vertices = other.vertices();
+        // Check overlap using the Separating Axis Theorem (SAT)
 
-        for vertex in &self_vertices {
-            if is_inside(&other_vertices, *vertex) {
-                return true;
+        let normals = (self.edges.0.iter().map(|v| v.perp()))
+            .chain(other.edges.0.iter().map(|v| v.perp()))
+            .collect::<Vec<_>>();
+
+        for normal in normals {
+            let mut min_a = f32::MAX;
+            let mut max_a = f32::MIN;
+
+            for vertex in self.vertices() {
+                let projection = vertex.dot(normal);
+                min_a = min_a.min(projection);
+                max_a = max_a.max(projection);
+            }
+
+            let mut min_b = f32::MAX;
+            let mut max_b = f32::MIN;
+
+            for vertex in other.vertices() {
+                let projection = vertex.dot(normal);
+                min_b = min_b.min(projection);
+                max_b = max_b.max(projection);
+            }
+
+            if max_a < min_b || max_b < min_a {
+                return false;
             }
         }
 
-        for vertex in &other_vertices {
-            if is_inside(&self_vertices, *vertex) {
-                return true;
-            }
-        }
-
-        false
+        true
     }
 }
 
@@ -206,7 +221,9 @@ pub fn fill<'a>(
 
             // TODO: use a spatial partitioning to speed this up
             for placed2 in placed_shapes.clone() {
-                if translated.is_overlapping(placed2) {
+                let mut placed2 = placed2.clone();
+                placed2.offset(offset);
+                if translated.is_overlapping(&placed2) {
                     inside = true;
                     break;
                 }
@@ -232,22 +249,6 @@ pub fn fill<'a>(
     });
 
     candidates.swap_remove(0)
-}
-
-/// Check if a point is inside a polygon (convex, CCW vertex list).
-fn is_inside(polygon: &[Vec2], point: Vec2) -> bool {
-    for i in 0..polygon.len() {
-        let a = polygon[i];
-        let b = polygon[(i + 1) % polygon.len()];
-
-        let cross = (b - a).perp_dot(point - a);
-
-        if cross < 0.0 {
-            return false;
-        }
-    }
-
-    true
 }
 
 fn calculate_centroid(vertices: &[Vec2]) -> Vec2 {
