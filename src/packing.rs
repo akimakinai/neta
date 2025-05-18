@@ -174,16 +174,18 @@ pub fn fill<'a>(
 
             let mut inside = false;
 
+            let translated_vertices = ShapePosition {
+                translation: nfp_vertex,
+                edges: shape_to_place.edges.clone(),
+            }
+            .vertices();
+
             // TODO: use a spatial partitioning to speed this up
             for placed2 in placed_shapes.clone() {
                 let placed2_vertices = placed2.vertices();
 
-                for edge in shape_to_place
-                    .edges
-                    .local_vertices()
-                    .map(|v| v + nfp_vertex)
-                {
-                    if is_inside(&placed2_vertices, edge) {
+                for &v in &translated_vertices {
+                    if is_inside(&placed2_vertices, v) {
                         inside = true;
                         break;
                     }
@@ -286,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_fill() {
-        let placed_shapes = vec![ShapePosition {
+        let mut placed_shapes = vec![ShapePosition {
             translation: Vec2::new(0.0, 0.0),
             edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0, None),
         }];
@@ -315,5 +317,20 @@ mod tests {
 
         // Since we initially placed the shape at (25, 25), the result should be close to that
         assert!(result.translation.cmpgt(Vec2::new(0.0, 0.0)).all());
+
+        placed_shapes.push(result.clone());
+
+        let shape_to_place2 = ShapePosition {
+            translation: Vec2::new(0.0, 0.0),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(10.0, 10.0), 0.0, None),
+        };
+
+        let result2 = fill(&placed_shapes, &shape_to_place2, 0.1);
+
+        for placed in &placed_shapes {
+            for vertex in result2.vertices() {
+                assert!(!is_inside(&placed.vertices(), vertex));
+            }
+        }
     }
 }

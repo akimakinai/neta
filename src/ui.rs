@@ -132,6 +132,11 @@ fn on_organize_button_clicked(
 
     let mut placed = Vec::with_capacity(shape_ids.len());
 
+    let Some(pop) = shape_ids.pop() else {
+        return;
+    };
+    placed.push(pop);
+
     for (target, shape) in shape_ids {
         let new_shape = crate::packing::fill(
             placed.iter().map(|t: &(Entity, ShapePosition)| &t.1),
