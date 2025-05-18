@@ -142,6 +142,25 @@ impl ShapePosition {
         self.edges = EdgeVectors::from_vertices(&new_vertices);
         self.translation -= calculate_centroid(&new_vertices) - calculate_centroid(&vertices);
     }
+
+    fn is_overlapping(&self, other: &ShapePosition) -> bool {
+        let self_vertices = self.vertices();
+        let other_vertices = other.vertices();
+
+        for vertex in &self_vertices {
+            if is_inside(&other_vertices, *vertex) {
+                return true;
+            }
+        }
+
+        for vertex in &other_vertices {
+            if is_inside(&self_vertices, *vertex) {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 // TODO: add `gap` paremeter
@@ -177,21 +196,16 @@ pub fn fill<'a>(
 
             let mut inside = false;
 
-            let translated_vertices = ShapePosition {
+            let translated = ShapePosition {
                 translation: nfp_vertex,
                 edges: shape_to_place.edges.clone(),
-            }
-            .vertices();
+            };
 
             // TODO: use a spatial partitioning to speed this up
             for placed2 in placed_shapes.clone() {
-                let placed2_vertices = placed2.vertices();
-
-                for &v in &translated_vertices {
-                    if is_inside(&placed2_vertices, v) {
-                        inside = true;
-                        break;
-                    }
+                if translated.is_overlapping(placed2) {
+                    inside = true;
+                    break;
                 }
             }
 
@@ -246,18 +260,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_inside() {
-        let polygon = vec![
-            Vec2::new(0.0, 0.0),
-            Vec2::new(4.0, 0.0),
-            Vec2::new(4.0, 4.0),
-            Vec2::new(0.0, 4.0),
-        ];
+    fn test_is_overlapping() {
+        let a = ShapePosition {
+            translation: Vec2::new(0.0, 0.0),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0),
+        };
 
-        assert!(is_inside(&polygon, Vec2::new(2.0, 2.0)));
-        assert!(!is_inside(&polygon, Vec2::new(5.0, 5.0)));
-        assert!(!is_inside(&polygon, Vec2::new(2.0, 5.0)));
-        assert!(!is_inside(&polygon, Vec2::new(-2.0, 2.0)));
+        let b = ShapePosition {
+            translation: Vec2::new(2.0, 2.0),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0),
+        };
+
+        let c = ShapePosition {
+            translation: Vec2::new(0.0, 5.5),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0),
+        };
+
+        assert!(a.is_overlapping(&b));
+        assert!(!a.is_overlapping(&c));
+        assert!(b.is_overlapping(&c));
     }
 
     #[test]
@@ -305,9 +326,7 @@ mod tests {
 
         // Ensure the result is not overlapping with the placed shape
         for placed in &placed_shapes {
-            for vertex in result.vertices() {
-                assert!(!is_inside(&placed.vertices(), vertex));
-            }
+            assert!(!result.is_overlapping(placed));
         }
 
         let gap = 0.1;
@@ -331,9 +350,7 @@ mod tests {
         let result2 = fill(&placed_shapes, &shape_to_place2, 0.1, Some(2));
 
         for placed in &placed_shapes {
-            for vertex in result2.vertices() {
-                assert!(!is_inside(&placed.vertices(), vertex));
-            }
+            assert!(!result2.is_overlapping(placed));
         }
     }
 }
