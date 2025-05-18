@@ -180,6 +180,7 @@ fn update_context_menu_state(
         Query<&mut Node, With<FrameContextItem>>,
     )>,
     target: Query<Entity, Or<(With<Hovered>, With<Selected>)>>,
+    frames: Query<Entity, With<ImageFrame>>,
     mut context_menu: Single<&mut ContextMenu>,
 ) {
     let on_canvas = target.is_empty();
@@ -198,7 +199,11 @@ fn update_context_menu_state(
         node.display = frame_display;
     }
 
-    context_menu.target_frames = target.iter().collect();
+    if target.is_empty() {
+        context_menu.target_frames = frames.iter().collect();
+    } else {
+        context_menu.target_frames = target.iter().collect();
+    }
 }
 
 /// Create a button with the given label.
