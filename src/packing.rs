@@ -8,26 +8,16 @@ use bevy::{
 pub struct EdgeVectors(pub Vec<Vec2>);
 
 impl EdgeVectors {
-    pub fn with_rect_size_rotation(size: Vec2, rotation: f32, div: Option<u8>) -> Self {
+    pub fn with_rect_size_rotation(size: Vec2, rotation: f32) -> Self {
         let rotation_matrix = Mat2::from_angle(rotation);
 
         // Ordered so that the first point is the bottom-left most
-        let mut points = vec![
+        let points = vec![
             rotation_matrix * Vec2::new(size.x, 0.0),
             rotation_matrix * Vec2::new(0.0, size.y),
             rotation_matrix * Vec2::new(-size.x, 0.0),
             rotation_matrix * Vec2::new(0.0, -size.y),
         ];
-
-        if let Some(div) = div {
-            let old_points = points;
-            points = Vec::with_capacity(old_points.len() * div as usize);
-            for p in old_points {
-                for _ in 0..div {
-                    points.push(p / div as f32);
-                }
-            }
-        }
 
         EdgeVectors(points)
     }
@@ -49,6 +39,18 @@ impl EdgeVectors {
             *acc += *edge;
             Some(*acc)
         })
+    }
+
+    /// Dvide each edge vector into `n` segments.
+    fn divide(&self, n: u32) -> EdgeVectors {
+        let mut edges = Vec::with_capacity(self.len() * 2);
+        for a in &self.0 {
+            let ad = *a / n as f32;
+            for _ in 0..n {
+                edges.push(ad);
+            }
+        }
+        EdgeVectors(edges)
     }
 }
 
@@ -147,6 +149,7 @@ pub fn fill<'a>(
     placed_shapes: impl IntoIterator<Item = &'a ShapePosition> + Clone,
     shape_to_place: &ShapePosition,
     offset: f32,
+    div: Option<u32>,
 ) -> ShapePosition {
     let mut candidates = vec![];
 
@@ -155,7 +158,7 @@ pub fn fill<'a>(
 
         let mut nfp_shape = ShapePosition {
             translation: placed.translation,
-            edges: nfp,
+            edges: nfp.divide(div.unwrap_or(1)),
         };
         nfp_shape.offset(offset);
         let mut nfp_vertices = nfp_shape.vertices();
@@ -259,8 +262,8 @@ mod tests {
 
     #[test]
     fn test_minkowski_sum() {
-        let a = EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 3.0), 0.0, None);
-        let b = EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 1.0), 0.0, None);
+        let a = EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 3.0), 0.0);
+        let b = EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 1.0), 0.0);
 
         let result = minkowski_sum(&a, &b);
 
@@ -270,10 +273,10 @@ mod tests {
         assert_eq!(result[2], Vec2::new(-6.0, 0.0));
         assert_eq!(result[3], Vec2::new(0.0, -4.0));
 
-        let a = EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 3.0), 0.0, Some(2));
-        let b = EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 1.0), 0.0, Some(2));
+        let a = EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 3.0), 0.0);
+        let b = EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 1.0), 0.0);
 
-        let result = minkowski_sum(&a, &b);
+        let result = minkowski_sum(&a, &b).divide(2);
 
         assert_eq!(result.len(), 8);
         assert_eq!(result[0], Vec2::new(3.0, 0.0));
@@ -290,15 +293,15 @@ mod tests {
     fn test_fill() {
         let mut placed_shapes = vec![ShapePosition {
             translation: Vec2::new(0.0, 0.0),
-            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0, None),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(4.0, 4.0), 0.0),
         }];
 
         let shape_to_place = ShapePosition {
             translation: Vec2::new(25.0, 25.0),
-            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 2.0), 0.0, None),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(2.0, 2.0), 0.0),
         };
 
-        let result = fill(&placed_shapes, &shape_to_place, 0.1);
+        let result = fill(&placed_shapes, &shape_to_place, 0.1, Some(2));
 
         // Ensure the result is not overlapping with the placed shape
         for placed in &placed_shapes {
@@ -322,10 +325,10 @@ mod tests {
 
         let shape_to_place2 = ShapePosition {
             translation: Vec2::new(0.0, 0.0),
-            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(10.0, 10.0), 0.0, None),
+            edges: EdgeVectors::with_rect_size_rotation(Vec2::new(10.0, 10.0), 0.0),
         };
 
-        let result2 = fill(&placed_shapes, &shape_to_place2, 0.1);
+        let result2 = fill(&placed_shapes, &shape_to_place2, 0.1, Some(2));
 
         for placed in &placed_shapes {
             for vertex in result2.vertices() {

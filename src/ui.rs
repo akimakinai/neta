@@ -123,7 +123,6 @@ fn on_organize_button_clicked(
             edges: EdgeVectors::with_rect_size_rotation(
                 sprite.custom_size.unwrap_or(Vec2::ZERO),
                 transform.rotation.angle_between(Quat::from_rotation_z(0.0)),
-                Some(2),
             ),
         };
 
@@ -142,6 +141,7 @@ fn on_organize_button_clicked(
             placed.iter().map(|t: &(Entity, ShapePosition)| &t.1),
             &shape,
             10.0,
+            Some(4),
         );
         placed.push((target, new_shape));
     }
