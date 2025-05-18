@@ -300,7 +300,7 @@ fn setup_sprite(
                 },
             )
             .observe(
-                |trigger: Trigger<OnRemove>,
+                |trigger: Trigger<OnRemove, ImageFrame>,
                  mut commands: Commands,
                  current: Option<Res<CurrentControlHandle>>,
                  control_handle: Query<&ControlHandle>| {
