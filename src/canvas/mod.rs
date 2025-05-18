@@ -352,6 +352,10 @@ pub fn organize_canvas(
     In(target): In<Vec<Entity>>,
     mut sprite: Query<(&mut Sprite, &mut Transform)>,
 ) {
+    if target.is_empty() {
+        return;
+    }
+
     let mut shape_ids = Vec::with_capacity(target.len());
 
     for &target in &target {

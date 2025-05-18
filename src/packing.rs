@@ -5,7 +5,7 @@ use bevy::{
 
 /// A polygon represented by its edge vectors (CCW order).
 #[derive(Deref, Clone, Debug)]
-pub struct EdgeVectors(pub Vec<Vec2>);
+pub struct EdgeVectors(Vec<Vec2>);
 
 impl EdgeVectors {
     pub fn with_rect_size_rotation(size: Vec2, rotation: f32) -> Self {
@@ -24,6 +24,8 @@ impl EdgeVectors {
 
     /// Construct from a list of vertices.
     pub fn from_vertices(vertices: &[Vec2]) -> Self {
+        assert!(vertices.len() >= 3);
+
         let mut edges = Vec::with_capacity(vertices.len());
         for i in 0..vertices.len() {
             let a = vertices[i];
