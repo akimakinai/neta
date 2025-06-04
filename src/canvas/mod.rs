@@ -166,7 +166,9 @@ fn drag_with_middle_mouse_button(
     pointer_delta: PointerDelta<With<MainCamera>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
 ) {
-    if mouse_buttons.any_pressed([MouseButton::Left, MouseButton::Right]) {
+    if !mouse_buttons.pressed(MouseButton::Middle)
+        || mouse_buttons.any_pressed([MouseButton::Left, MouseButton::Right])
+    {
         return;
     }
 
