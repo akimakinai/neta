@@ -152,24 +152,23 @@ pub fn despawn_control_handle(world: &mut World) {
 struct TrackMainCameraEntityTransform(Entity);
 
 fn track_main_camera_entity_transform(
-    mut commands: Commands,
-    transform_helper: TransformHelper,
-    camera_translator: CameraTranslator,
+    mut transform_params: ParamSet<(TransformHelper, CameraTranslator, Query<&mut Transform>)>,
     tracker: Query<(Entity, &TrackMainCameraEntityTransform)>,
 ) -> Result {
     for (tracker_entity, target) in &tracker {
         let target_entity = target.0;
-        let target_transform = transform_helper.compute_global_transform(target_entity)?;
+        let target_transform = transform_params
+            .p0()
+            .compute_global_transform(target_entity)?;
 
-        let mut control_transform = camera_translator.to_control(&target_transform)?;
+        let mut control_transform = transform_params.p1().to_control(&target_transform)?;
         // Ignore scaling
         control_transform.scale = Vec3::ONE;
 
-        commands.queue(move |world: &mut World| {
-            world
-                .get_mut::<Transform>(tracker_entity)
-                .map(|mut t| t.set_if_neq(control_transform));
-        });
+        transform_params
+            .p2()
+            .get_mut(tracker_entity)?
+            .set_if_neq(control_transform);
     }
 
     Ok(())
@@ -389,15 +388,14 @@ fn rotation_handle_observers(pivot: Pivot, sprite_id: Entity) -> impl Bundle {
 }
 
 fn update_corner_handle(
-    mut commands: Commands,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    handle: Query<(Entity, &Transform, &ControlHandleCorner), Without<MainCamera>>,
+    handle: Query<(Entity, &ControlHandleCorner), Without<MainCamera>>,
     sprite: Query<(&GlobalTransform, &Sprite)>,
     images: Res<Assets<Image>>,
-    camera_translator: CameraTranslator,
+    mut transform_params: ParamSet<(CameraTranslator, Query<&mut Transform>)>,
 ) -> Result {
-    for (id, transform, pivot) in &handle {
+    for (id, pivot) in &handle {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
@@ -406,17 +404,22 @@ fn update_corner_handle(
             .custom_size
             .or_else(|| images.get(&sprite.image).map(|img| img.size_f32()))
         {
-            size *= camera_translator.to_control(sprite_transform)?.scale.xy();
+            size *= transform_params
+                .p0()
+                .to_control(sprite_transform)?
+                .scale
+                .xy();
+
+            let mut transforms = transform_params.p1();
+            let mut transform = transforms.get_mut(id)?;
 
             let v = pivot.0.as_vec();
-            let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z);
-            if transform.translation != new_translation {
-                commands.queue(move |world: &mut World| {
-                    if let Some(mut t) = world.get_mut::<Transform>(id) {
-                        t.translation = new_translation;
-                    }
-                });
-            }
+            let new_transform = transform.with_translation(Vec3::new(
+                size.x * v.x,
+                size.y * v.y,
+                transform.translation.z,
+            ));
+            transform.set_if_neq(new_transform);
         }
     }
 
@@ -426,15 +429,14 @@ fn update_corner_handle(
 const ROTATION_HANDLE_EXTENSION: f32 = 30.0;
 
 fn update_rotation_handle(
-    mut commands: Commands,
-    camera_translator: CameraTranslator,
+    mut transform_params: ParamSet<(CameraTranslator, Query<&mut Transform>)>,
     control_handle: Query<&ControlHandle>,
     child_of: Query<&ChildOf>,
-    handle: Query<(Entity, &Transform, &ControlHandleRotation), Without<MainCamera>>,
+    handle: Query<(Entity, &ControlHandleRotation), Without<MainCamera>>,
     sprite: Query<(&GlobalTransform, &Sprite)>,
     images: Res<Assets<Image>>,
 ) -> Result {
-    for (id, transform, pivot) in &handle {
+    for (id, pivot) in &handle {
         let sprite_id = control_handle.get(child_of.get(id)?.parent())?.0;
 
         let (sprite_transform, sprite) = sprite.get(sprite_id)?;
@@ -443,24 +445,28 @@ fn update_rotation_handle(
             .custom_size
             .or_else(|| images.get(&sprite.image).map(|img| img.size_f32()))
         {
-            size *= camera_translator.to_control(sprite_transform)?.scale.xy();
+            size *= transform_params
+                .p0()
+                .to_control(sprite_transform)?
+                .scale
+                .xy();
+
+            let mut transforms = transform_params.p1();
+            let mut transform = transforms.get_mut(id)?;
 
             let v = pivot.0.as_vec();
             let handle_extention = ROTATION_HANDLE_EXTENSION * v.normalize();
-            let new_translation = Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
-                + handle_extention.extend(0.0);
-            if transform.translation != new_translation {
-                commands.queue(move |world: &mut World| {
-                    if let Some(mut t) = world.get_mut::<Transform>(id) {
-                        t.translation = new_translation;
-                    }
-                });
-            }
+            let new_transform = transform.with_translation(
+                Vec3::new(size.x * v.x, size.y * v.y, transform.translation.z)
+                    + handle_extention.extend(0.0),
+            );
+            transform.set_if_neq(new_transform);
         }
     }
 
     Ok(())
 }
+
 const HANDLE_WIDTH: f32 = 2.0;
 
 fn draw_control_handle(
