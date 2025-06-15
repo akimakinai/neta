@@ -1,5 +1,7 @@
 use crate::{
-    packing::{EdgeVectors, ShapePosition}, sprite_picking::{SpritePickingMode, SpritePickingSettings}, viewport_delta::PointerDelta
+    packing::{EdgeVectors, ShapePosition},
+    sprite_picking::{SpritePickingMode, SpritePickingSettings},
+    viewport_delta::PointerDelta,
 };
 use bevy::{
     asset::LoadState,
@@ -173,16 +175,14 @@ fn drag_with_middle_mouse_button(
     }
 
     let event = trigger.event();
-    if event.button == PointerButton::Middle {
-        if let Some((world_delta, camera_id)) =
-            pointer_delta.get_world(&trigger.pointer_location, trigger.delta)
-        {
-            let Ok(mut transform) = camera.get_mut(camera_id) else {
-                return;
-            };
-
-            transform.translation -= world_delta.extend(0.0);
-        }
+    if event.button != PointerButton::Middle {
+        return;
+    }
+    if let Some((world_delta, camera_id)) =
+        pointer_delta.get_world(&trigger.pointer_location, trigger.delta)
+        && let Ok(mut transform) = camera.get_mut(camera_id)
+    {
+        transform.translation -= world_delta.extend(0.0);
     }
 }
 
@@ -305,12 +305,9 @@ fn setup_sprite(
                  mut commands: Commands,
                  current: Option<Res<CurrentControlHandle>>,
                  control_handle: Query<&ControlHandle>| {
-                    let Some(current) = current else {
-                        return;
-                    };
-                    if control_handle
-                        .get(current.0)
-                        .is_ok_and(|c| c.0 == trigger.target())
+                    if let Some(current) = current
+                        && let Ok(ch) = control_handle.get(current.0)
+                        && ch.0 == trigger.target()
                     {
                         commands.queue(handle::despawn_control_handle);
                     }
